@@ -106,6 +106,16 @@ class JosrachatClaude
             return array('ok' => false, 'error' => 'El servidor no tiene la extensión cURL de PHP.', 'fatal' => true);
         }
 
+        $headers = array(
+            'Content-Type: application/json',
+            'x-api-key: ' . $apiKey,
+            'anthropic-version: ' . self::API_VERSION,
+        );
+        $workspace = trim((string) Configuration::get('JOSRACHAT_WORKSPACE'));
+        if ($workspace !== '') {
+            $headers[] = 'anthropic-workspace-id: ' . $workspace;
+        }
+
         $attempt = 0;
         do {
             ++$attempt;
@@ -116,11 +126,7 @@ class JosrachatClaude
                 CURLOPT_POSTFIELDS => json_encode($payload, defined('JSON_INVALID_UTF8_SUBSTITUTE') ? JSON_INVALID_UTF8_SUBSTITUTE : 0),
                 CURLOPT_CONNECTTIMEOUT => 10,
                 CURLOPT_TIMEOUT => $timeout,
-                CURLOPT_HTTPHEADER => array(
-                    'Content-Type: application/json',
-                    'x-api-key: ' . $apiKey,
-                    'anthropic-version: ' . self::API_VERSION,
-                ),
+                CURLOPT_HTTPHEADER => $headers,
             ));
             $raw = curl_exec($ch);
             $http = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -166,6 +172,13 @@ class JosrachatClaude
                 break;
             default:
                 $reason = 'Anthropic ha devuelto un error HTTP ' . $http . '.';
+        }
+        if (stripos($msg, 'anthropic-workspace-id') !== false || stripos($msg, 'not scoped to a workspace') !== false) {
+            $reason = 'Esta API Key no está limitada a un espacio de trabajo (workspace): pon el ID del workspace en la configuración o crea la clave dentro de un workspace.';
+            $fatal = true;
+        } elseif (stripos($msg, 'Workspace') !== false && $http === 404) {
+            $reason = 'El ID del espacio de trabajo (workspace) configurado no existe o la clave no tiene acceso a él.';
+            $fatal = true;
         }
         if (stripos($msg, 'credit balance') !== false) {
             $reason = 'No queda saldo en la cuenta de Anthropic.';

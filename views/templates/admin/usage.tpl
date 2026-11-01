@@ -119,7 +119,7 @@
       {else}
         <p class="text-muted">-</p>
       {/if}
-      <p class="help-block">{l s='Modelo actual' mod='josrachat'}: <strong>{$jrc_model|escape:'html':'UTF-8'}</strong>. {l s='Importes convertidos a euros con el cambio' mod='josrachat'} {$jrc_rate|escape:'html':'UTF-8'}. {l s='El cargo real lo ves en console.anthropic.com > Billing.' mod='josrachat'}</p>
+      <p class="help-block">{l s='Modelo actual' mod='josrachat'}: <strong>{$jrc_model|escape:'html':'UTF-8'}</strong>. {l s='Importes convertidos a euros con el cambio' mod='josrachat'} {$jrc_rate|escape:'html':'UTF-8'}. {l s='El cargo real lo ves en' mod='josrachat'} <a href="https://platform.claude.com/" target="_blank" rel="noopener">platform.claude.com</a> &gt; Settings &gt; Billing.</p>
       <p class="help-block">{l s='"Pedidos tras chatear" cuenta los pedidos del mismo carrito o del mismo cliente en los 7 días siguientes a usar el asistente.' mod='josrachat'}</p>
     </div>
   </div>

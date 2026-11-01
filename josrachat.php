@@ -28,7 +28,7 @@ class Josrachat extends Module
     {
         $this->name = 'josrachat';
         $this->tab = 'front_office_features';
-        $this->version = '2.0.1';
+        $this->version = '2.0.2';
         $this->author = 'josra';
         $this->need_instance = 0;
         $this->bootstrap = true;
@@ -464,7 +464,7 @@ class Josrachat extends Module
     protected function configFields()
     {
         return array(
-            'JOSRACHAT_ACTIVE', 'JOSRACHAT_MODEL', 'JOSRACHAT_BOT_NAME', 'JOSRACHAT_INSTRUCTIONS', 'JOSRACHAT_ORDER_INSTRUCTIONS', 'JOSRACHAT_COLOR',
+            'JOSRACHAT_ACTIVE', 'JOSRACHAT_WORKSPACE', 'JOSRACHAT_MODEL', 'JOSRACHAT_BOT_NAME', 'JOSRACHAT_INSTRUCTIONS', 'JOSRACHAT_ORDER_INSTRUCTIONS', 'JOSRACHAT_COLOR',
             'JOSRACHAT_POSITION', 'JOSRACHAT_MOBILE', 'JOSRACHAT_WHATSAPP', 'JOSRACHAT_PHONE', 'JOSRACHAT_CONTACT_EMAIL',
             'JOSRACHAT_USD_EUR', 'JOSRACHAT_CAP_MONTH', 'JOSRACHAT_CAP_DAY', 'JOSRACHAT_ALERT_EMAIL',
             'JOSRACHAT_LIMIT_CONV_HOUR', 'JOSRACHAT_LIMIT_IP_DAY',
@@ -509,6 +509,9 @@ class Josrachat extends Module
 
         $newKey = trim((string) Tools::getValue('JOSRACHAT_API_KEY_NEW'));
         if ($newKey !== '') {
+            if (strpos($newKey, 'sk-ant-') !== 0) {
+                return $this->displayError($this->l('Esa no parece una API Key de Claude: tiene que empezar por sk-ant-. No se ha guardado nada.'));
+            }
             Configuration::updateValue('JOSRACHAT_API_KEY', $newKey);
         }
         if (Tools::getValue('JOSRACHAT_API_KEY_DELETE')) {
@@ -573,7 +576,7 @@ class Josrachat extends Module
         $key = trim((string) Configuration::get('JOSRACHAT_API_KEY'));
         $keyDesc = $key !== ''
             ? sprintf($this->l('Guardada: %s. Déjalo vacío para mantenerla.'), Tools::substr($key, 0, 10) . '…' . Tools::substr($key, -4))
-            : $this->l('Créala en console.anthropic.com > API Keys. Es de pago por uso, aparte de la suscripción de claude.ai.');
+            : sprintf($this->l('Créala en %s y pégala aquí. Empieza por sk-ant-.'), '<a href="https://platform.claude.com/settings/keys" target="_blank" rel="noopener">platform.claude.com/settings/keys</a>');
         $switch = function ($name) {
             return array(
                 array('id' => $name . '_on', 'value' => 1, 'label' => $this->l('Sí')),
@@ -581,12 +584,26 @@ class Josrachat extends Module
             );
         };
 
+        $help = '<div class="alert alert-info" style="margin-bottom:0;">'
+            . '<p><strong>' . $this->l('Cómo conseguir la API Key de Claude') . '</strong></p>'
+            . '<ol style="margin:6px 0 6px 18px;padding:0;">'
+            . '<li>' . sprintf($this->l('Entra en la consola de Claude: %s. Puedes usar el mismo email que en claude.ai, pero la API se paga aparte: la suscripción de claude.ai no sirve aquí.'), '<a href="https://platform.claude.com/" target="_blank" rel="noopener"><strong>platform.claude.com</strong></a>') . '</li>'
+            . '<li>' . $this->l('Añade saldo en Settings > Billing. Es prepago: cuando se acaba, el asistente deja de responder y te llega un email.') . '</li>'
+            . '<li>' . sprintf($this->l('Recomendado: crea un espacio de trabajo (workspace) por tienda en %s. Así ves el gasto de cada tienda por separado en la consola.'), '<a href="https://platform.claude.com/settings/workspaces" target="_blank" rel="noopener">Settings > Workspaces</a>') . '</li>'
+            . '<li>' . sprintf($this->l('Crea la clave en %s con "Create key", elige ese workspace y cópiala: solo se ve una vez.'), '<a href="https://platform.claude.com/settings/keys" target="_blank" rel="noopener">Settings > API Keys</a>') . '</li>'
+            . '<li>' . $this->l('Pégala abajo, guarda y pulsa "Probar conexión". Si sale un error, el mensaje dice el motivo.') . '</li>'
+            . '</ol>'
+            . '<p style="margin:0;">' . sprintf($this->l('Guía oficial: %s'), '<a href="https://platform.claude.com/docs/es/get-api-key" target="_blank" rel="noopener">platform.claude.com/docs/es/get-api-key</a>') . '</p>'
+            . '</div>';
+
         $forms = array();
         $forms[] = array('form' => array(
             'legend' => array('title' => $this->l('Asistente'), 'icon' => 'icon-comments'),
             'input' => array(
+                array('type' => 'html', 'name' => 'jrc_api_help', 'html_content' => $help),
                 array('type' => 'switch', 'label' => $this->l('Activar en la tienda'), 'name' => 'JOSRACHAT_ACTIVE', 'is_bool' => true, 'values' => $switch('JOSRACHAT_ACTIVE')),
-                array('type' => 'text', 'label' => $this->l('API Key de Anthropic'), 'name' => 'JOSRACHAT_API_KEY_NEW', 'placeholder' => 'sk-ant-...', 'autocomplete' => false, 'desc' => $keyDesc, 'col' => 6),
+                array('type' => 'text', 'label' => $this->l('API Key de Claude'), 'name' => 'JOSRACHAT_API_KEY_NEW', 'placeholder' => 'sk-ant-...', 'autocomplete' => false, 'desc' => $keyDesc, 'col' => 6),
+                array('type' => 'text', 'label' => $this->l('ID del workspace'), 'name' => 'JOSRACHAT_WORKSPACE', 'placeholder' => 'wrkspc_...', 'col' => 4, 'desc' => sprintf($this->l('Solo si al probar la conexión te dice que la clave no está limitada a un workspace. Lo ves en %s. Si creaste la clave dentro de un workspace, déjalo vacío.'), '<a href="https://platform.claude.com/settings/workspaces" target="_blank" rel="noopener">Settings > Workspaces</a>')),
                 array('type' => 'select', 'label' => $this->l('Modelo'), 'name' => 'JOSRACHAT_MODEL', 'options' => array('query' => $modelOptions, 'id' => 'id', 'name' => 'name'), 'desc' => $this->l('Haiku es el más barato y basta para atender una tienda. Sonnet razona mejor pero cuesta mucho más.')),
                 array('type' => 'text', 'label' => $this->l('Nombre del asistente'), 'name' => 'JOSRACHAT_BOT_NAME', 'col' => 4),
                 array('type' => 'textarea', 'label' => $this->l('Mensaje de bienvenida'), 'name' => 'JOSRACHAT_WELCOME', 'lang' => true, 'rows' => 2, 'col' => 9),
