@@ -102,19 +102,35 @@
         var title = el('div', 'jrc-title');
         title.appendChild(el('strong', '', cfg.name));
         title.appendChild(el('span', 'jrc-sub', T.subtitle));
-        var btnPerson = el('button', 'jrc-icon', '');
-        btnPerson.type = 'button';
-        btnPerson.title = T.person;
-        btnPerson.setAttribute('aria-label', T.person);
-        btnPerson.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M12 12a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9zm0 2c-4 0-8 2-8 5v2h16v-2c0-3-4-5-8-5z"/></svg>';
+        var btnMenu = el('button', 'jrc-icon', '');
+        btnMenu.type = 'button';
+        btnMenu.title = T.menu;
+        btnMenu.setAttribute('aria-label', T.menu);
+        btnMenu.setAttribute('aria-haspopup', 'true');
+        btnMenu.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M12 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/></svg>';
+        var menu = el('div', 'jrc-menu');
+        menu.setAttribute('role', 'menu');
+        function menuItem(label, icon) {
+            var b = el('button', 'jrc-menu-item');
+            b.type = 'button';
+            b.setAttribute('role', 'menuitem');
+            b.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="' + icon + '"/></svg>';
+            b.appendChild(document.createTextNode(' ' + label));
+            menu.appendChild(b);
+            return b;
+        }
+        var miReset = menuItem(T.reset, 'M17.65 6.35A7.96 7.96 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z');
+        var miPerson = menuItem(T.person, 'M12 12a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9zm0 2c-4 0-8 2-8 5v2h16v-2c0-3-4-5-8-5z');
+        var miClose = menuItem(T.close, 'M6.4 5 5 6.4 10.6 12 5 17.6 6.4 19l5.6-5.6 5.6 5.6 1.4-1.4-5.6-5.6L19 6.4 17.6 5 12 10.6z');
         var btnClose = el('button', 'jrc-icon', '');
         btnClose.type = 'button';
         btnClose.title = T.close;
         btnClose.setAttribute('aria-label', T.close);
         btnClose.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M6.4 5 5 6.4 10.6 12 5 17.6 6.4 19l5.6-5.6 5.6 5.6 1.4-1.4-5.6-5.6L19 6.4 17.6 5 12 10.6z"/></svg>';
         head.appendChild(title);
-        head.appendChild(btnPerson);
+        head.appendChild(btnMenu);
         head.appendChild(btnClose);
+        head.appendChild(menu);
 
         var list = el('div', 'jrc-list');
         list.setAttribute('aria-live', 'polite');
@@ -206,6 +222,44 @@
             list.appendChild(row);
             list.scrollTop = list.scrollHeight;
         }
+        // Formulario de pedido dentro del chat: email + número de pedido.
+        function addOrderForm() {
+            var row = el('div', 'jrc-msg jrc-bot');
+            var box = el('form', 'jrc-txt jrc-orderform');
+            box.setAttribute('novalidate', 'novalidate');
+            var oEmail = el('input');
+            oEmail.type = 'email';
+            oEmail.placeholder = T.orderEmail;
+            oEmail.maxLength = 128;
+            oEmail.autocomplete = 'email';
+            var oRef = el('input');
+            oRef.type = 'text';
+            oRef.placeholder = T.orderRef;
+            oRef.maxLength = 32;
+            var oErr = el('div', 'jrc-form-error');
+            var oBtn = el('button', 'jrc-send-form', T.orderCheck);
+            oBtn.type = 'submit';
+            box.appendChild(oEmail);
+            box.appendChild(oRef);
+            box.appendChild(oErr);
+            box.appendChild(oBtn);
+            row.appendChild(box);
+            list.appendChild(row);
+            list.scrollTop = list.scrollHeight;
+            oEmail.focus();
+            box.addEventListener('submit', function (e) {
+                e.preventDefault();
+                var em = oEmail.value.replace(/^\s+|\s+$/g, '');
+                var rf = oRef.value.replace(/^\s+|\s+$/g, '').replace(/^#/, '');
+                if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em) || !rf) {
+                    oErr.textContent = T.orderError;
+                    return;
+                }
+                row.parentNode.removeChild(row);
+                sendMessage(T.orderMessage.replace('%ref%', rf).replace('%email%', em));
+            });
+        }
+
         var typing = null;
         function setTyping(on) {
             if (on && !typing) {
@@ -290,6 +344,9 @@
                     return;
                 }
                 addMsg('bot', r.reply);
+                if (r.orderForm) {
+                    addOrderForm();
+                }
                 if (r.contact) {
                     showContact(true);
                 }
@@ -301,7 +358,30 @@
             if (state.open) { closePanel(); } else { openPanel(); }
         });
         btnClose.addEventListener('click', closePanel);
-        btnPerson.addEventListener('click', function () { showContact(root.className.indexOf('jrc-show-contact') === -1); });
+        function toggleMenu(on) {
+            root.className = root.className.replace(/\s?jrc-menu-open/g, '') + (on ? ' jrc-menu-open' : '');
+            btnMenu.setAttribute('aria-expanded', on ? 'true' : 'false');
+        }
+        btnMenu.addEventListener('click', function (e) {
+            e.stopPropagation();
+            toggleMenu(root.className.indexOf('jrc-menu-open') === -1);
+        });
+        document.addEventListener('click', function (e) {
+            if (!menu.contains(e.target)) { toggleMenu(false); }
+        });
+        miPerson.addEventListener('click', function () { toggleMenu(false); showContact(true); });
+        miClose.addEventListener('click', function () { toggleMenu(false); closePanel(); });
+        miReset.addEventListener('click', function () {
+            toggleMenu(false);
+            if (state.busy) { return; }
+            // Empieza una conversación nueva; la anterior queda guardada en la tienda.
+            post({ action: 'reset', token: state.token }, function () {
+                list.innerHTML = '';
+                showContact(false);
+                addMsg('bot', cfg.welcome);
+                input.focus();
+            });
+        });
         back.addEventListener('click', function () { showContact(false); });
         btnMail.addEventListener('click', function () {
             root.className = root.className.replace(/\s?jrc-show-form/g, '') + ' jrc-show-form';

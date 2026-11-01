@@ -194,3 +194,51 @@
     #josrachat.jrc-open .jrc-panel { width: 100%; height: 100%; max-height: none; border-radius: 0; }
     #josrachat .jrc-input { font-size: 16px; }
 }
+
+/* Menú de opciones de la cabecera */
+#josrachat .jrc-head { position: relative; }
+#josrachat .jrc-menu {
+    display: none;
+    position: absolute;
+    top: 52px;
+    right: 10px;
+    min-width: 220px;
+    background: #fff;
+    color: #1f2937;
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .18);
+    padding: 4px 0;
+    z-index: 5;
+}
+#josrachat.jrc-menu-open .jrc-menu { display: block; }
+#josrachat .jrc-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 11px 16px;
+    border: 0;
+    border-bottom: 1px solid #f0f0f0;
+    background: none;
+    color: #1f2937;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+#josrachat .jrc-menu-item:last-child { border-bottom: 0; }
+#josrachat .jrc-menu-item:hover { background: #f5f6f8; }
+#josrachat .jrc-menu-item svg { flex: 0 0 18px; color: #4b5563; }
+
+/* Formulario de pedido dentro del chat */
+#josrachat .jrc-orderform { width: 85%; }
+#josrachat .jrc-orderform input {
+    display: block;
+    width: 100%;
+    margin: 0 0 6px;
+    padding: 8px 10px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    font: inherit;
+    background: #fff;
+    color: #1f2937;
+}

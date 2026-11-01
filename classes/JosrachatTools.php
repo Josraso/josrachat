@@ -19,6 +19,8 @@ class JosrachatTools
     /** Se pone a true cuando la IA pide poner al cliente en contacto con una persona. */
     public $contactRequested = false;
     public $contactReason = '';
+    /** Se pone a true cuando la IA pide mostrar el formulario de email y número de pedido. */
+    public $orderFormRequested = false;
     public $orderLookupsFailed = 0;
 
     public function __construct(Context $context)
@@ -83,7 +85,7 @@ class JosrachatTools
             ),
             array(
                 'name' => 'estado_pedido',
-                'description' => 'Estado, transportista y seguimiento de un pedido. Si el cliente ha iniciado sesión se usan sus pedidos sin pedir nada. Si no, hacen falta la referencia o número del pedido Y el email con el que se compró: pídeselos antes de llamar.',
+                'description' => 'Estado, pago, envío, seguimiento e historial de un pedido. Si el cliente ha iniciado sesión se usan sus pedidos sin pedir nada (llámala sin argumentos para ver los últimos). Si no, hacen falta la referencia o número del pedido Y el email con el que se compró; si no los tienes, usa pedir_datos_pedido.',
                 'input_schema' => array(
                     'type' => 'object',
                     'properties' => array(
@@ -91,6 +93,11 @@ class JosrachatTools
                         'email' => array('type' => 'string'),
                     ),
                 ),
+            ),
+            array(
+                'name' => 'pedir_datos_pedido',
+                'description' => 'Muestra al cliente, dentro del chat, un formulario con dos casillas (email y número de pedido) para consultar su pedido. Úsala cuando pregunte por un pedido sin haber iniciado sesión y sin haber dado esos datos.',
+                'input_schema' => array('type' => 'object', 'properties' => new stdClass()),
             ),
             array(
                 'name' => 'contactar_persona',
@@ -131,6 +138,13 @@ class JosrachatTools
                     return $this->readPage(isset($input['tipo']) ? (string) $input['tipo'] : '', isset($input['id']) ? (int) $input['id'] : 0);
                 case 'estado_pedido':
                     return $this->orderStatus(isset($input['referencia']) ? (string) $input['referencia'] : '', isset($input['email']) ? (string) $input['email'] : '');
+                case 'pedir_datos_pedido':
+                    if ($this->context->customer && $this->context->customer->isLogged()) {
+                        return 'El cliente ha iniciado sesión: no hace falta formulario, llama a estado_pedido sin argumentos.';
+                    }
+                    $this->orderFormRequested = true;
+
+                    return 'Se ha mostrado al cliente un formulario con email y número de pedido. Dile en una frase que lo rellene para consultarlo.';
                 case 'contactar_persona':
                     $this->contactRequested = true;
                     $this->contactReason = isset($input['motivo']) ? (string) $input['motivo'] : 'otro';

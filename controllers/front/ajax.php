@@ -67,6 +67,11 @@ class JosrachatAjaxModuleFrontController extends ModuleFrontController
         if ($action === 'contact') {
             $this->contact();
         }
+        if ($action === 'reset') {
+            // Nueva conversación: la anterior se queda guardada en el back-office.
+            $this->context->cookie->josrachat_sid = bin2hex(random_bytes(16));
+            $this->out(array('ok' => true));
+        }
 
         $this->out(array('ok' => false, 'error' => 'action'));
     }
@@ -107,6 +112,7 @@ class JosrachatAjaxModuleFrontController extends ModuleFrontController
             'ok' => true,
             'reply' => $result['reply'],
             'contact' => !empty($result['contact']),
+            'orderForm' => !empty($result['orderForm']),
         ));
     }
 

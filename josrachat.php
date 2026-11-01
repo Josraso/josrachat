@@ -28,7 +28,7 @@ class Josrachat extends Module
     {
         $this->name = 'josrachat';
         $this->tab = 'front_office_features';
-        $this->version = '2.0.2';
+        $this->version = '2.0.3';
         $this->author = 'josra';
         $this->need_instance = 0;
         $this->bootstrap = true;
@@ -157,6 +157,13 @@ class Josrachat extends Module
                 'open' => 'Abrir el asistente',
                 'subtitle' => 'Asistente automático',
                 'person' => 'Hablar con una persona',
+                'menu' => 'Opciones',
+                'reset' => 'Nueva conversación',
+                'orderEmail' => 'Email de la compra',
+                'orderRef' => 'Número o referencia del pedido',
+                'orderCheck' => 'Consultar pedido',
+                'orderError' => 'Pon un email válido y el número de pedido.',
+                'orderMessage' => 'Quiero saber cómo va mi pedido %ref%. El email de la compra es %email%.',
                 'close' => 'Cerrar',
                 'contactTitle' => '¿Prefieres hablar con una persona?',
                 'call' => 'Llamar',
@@ -175,6 +182,13 @@ class Josrachat extends Module
                 'open' => 'Open the assistant',
                 'subtitle' => 'Automated assistant',
                 'person' => 'Talk to a person',
+                'menu' => 'Options',
+                'reset' => 'New conversation',
+                'orderEmail' => 'Email used for the purchase',
+                'orderRef' => 'Order number or reference',
+                'orderCheck' => 'Check order',
+                'orderError' => 'Enter a valid email and the order number.',
+                'orderMessage' => 'I would like to know the status of my order %ref%. The purchase email is %email%.',
                 'close' => 'Close',
                 'contactTitle' => 'Would you rather talk to a person?',
                 'call' => 'Call',
