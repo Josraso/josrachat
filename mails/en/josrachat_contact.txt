@@ -1,0 +1,12 @@
+Message from the shop assistant
+
+Name: {name}
+Email: {email}
+
+Message:
+{message_txt}
+
+Conversation with the assistant:
+{transcript_txt}
+
+Reply to this email to answer the customer directly. Conversation no. {conversation}.

@@ -1,0 +1,3 @@
+Shop assistant notice - {shop_name}
+
+{message}

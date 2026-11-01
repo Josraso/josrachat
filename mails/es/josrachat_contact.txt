@@ -1,0 +1,12 @@
+Mensaje desde el asistente de la tienda
+
+Nombre: {name}
+Email: {email}
+
+Mensaje:
+{message_txt}
+
+Conversación con el asistente:
+{transcript_txt}
+
+Responde a este correo para contestar directamente al cliente. Conversación nº {conversation}.

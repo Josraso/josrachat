@@ -1,0 +1,196 @@
+/* josrachat - widget del asistente. Todo bajo #josrachat para no tocar el tema. */
+#josrachat {
+    --jrc-color: #2563eb;
+    position: fixed !important;
+    bottom: 20px !important;
+    z-index: 2147483000 !important;
+    transform: none !important;
+    font-family: inherit;
+    font-size: 14px;
+    line-height: 1.45;
+    color: #1f2937;
+}
+#josrachat.jrc-right { right: 20px !important; left: auto !important; }
+#josrachat.jrc-left { left: 20px !important; right: auto !important; }
+#josrachat * { box-sizing: border-box; }
+
+#josrachat .jrc-bubble {
+    width: 58px;
+    height: 58px;
+    border-radius: 50%;
+    border: 0;
+    background: var(--jrc-color);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, .22);
+    transition: transform .15s;
+    padding: 0;
+}
+#josrachat .jrc-bubble:hover { transform: scale(1.06); }
+#josrachat.jrc-left .jrc-bubble { margin-right: auto; }
+#josrachat.jrc-right .jrc-bubble { margin-left: auto; }
+#josrachat.jrc-open .jrc-bubble { display: none; }
+
+#josrachat .jrc-panel {
+    display: none;
+    flex-direction: column;
+    width: 370px;
+    height: 560px;
+    max-height: calc(100vh - 40px);
+    background: #fff;
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, .25);
+}
+#josrachat.jrc-open .jrc-panel { display: flex; }
+
+#josrachat .jrc-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 12px 12px 12px 16px;
+    background: var(--jrc-color);
+    color: #fff;
+}
+#josrachat .jrc-title { flex: 1; min-width: 0; }
+#josrachat .jrc-title strong { display: block; font-size: 15px; color: #fff; }
+#josrachat .jrc-sub { display: block; font-size: 12px; opacity: .85; }
+#josrachat .jrc-icon {
+    width: 34px;
+    height: 34px;
+    border: 0;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, .16);
+    color: #fff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+}
+#josrachat .jrc-icon:hover { background: rgba(255, 255, 255, .3); }
+
+#josrachat .jrc-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px;
+    background: #f5f6f8;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+#josrachat .jrc-msg { display: flex; }
+#josrachat .jrc-user { justify-content: flex-end; }
+#josrachat .jrc-txt {
+    max-width: 85%;
+    padding: 9px 12px;
+    border-radius: 14px;
+    word-wrap: break-word;
+    overflow-wrap: anywhere;
+}
+#josrachat .jrc-bot .jrc-txt { background: #fff; border-bottom-left-radius: 4px; box-shadow: 0 1px 2px rgba(0, 0, 0, .08); }
+#josrachat .jrc-user .jrc-txt { background: var(--jrc-color); color: #fff; border-bottom-right-radius: 4px; }
+#josrachat .jrc-txt a { color: var(--jrc-color); text-decoration: underline; }
+#josrachat .jrc-user .jrc-txt a { color: #fff; }
+#josrachat .jrc-typing i {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    margin: 0 2px;
+    border-radius: 50%;
+    background: #9ca3af;
+    animation: jrc-dot 1.2s infinite;
+}
+#josrachat .jrc-typing i:nth-child(2) { animation-delay: .2s; }
+#josrachat .jrc-typing i:nth-child(3) { animation-delay: .4s; }
+@keyframes jrc-dot { 0%, 60%, 100% { transform: none; } 30% { transform: translateY(-5px); } }
+
+#josrachat .jrc-contact { display: none; padding: 12px 14px; background: #fff; border-top: 1px solid #e5e7eb; }
+#josrachat.jrc-show-contact .jrc-contact { display: block; }
+#josrachat .jrc-contact-title { margin: 0 0 8px; font-weight: 600; }
+#josrachat .jrc-options { display: flex; flex-wrap: wrap; gap: 6px; }
+#josrachat .jrc-opt {
+    flex: 1 1 auto;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 0;
+    text-align: center;
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none !important;
+    cursor: pointer;
+    color: #fff !important;
+}
+#josrachat .jrc-wa { background: #25d366; }
+#josrachat .jrc-phone { background: #0ea5e9; }
+#josrachat .jrc-mail { background: #4b5563; }
+#josrachat .jrc-form { display: none; margin-top: 10px; }
+#josrachat.jrc-show-form .jrc-form { display: block; }
+#josrachat.jrc-show-form .jrc-options { display: none; }
+#josrachat .jrc-form input,
+#josrachat .jrc-form textarea {
+    display: block;
+    width: 100%;
+    margin: 0 0 6px;
+    padding: 8px 10px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    font: inherit;
+    background: #fff;
+    color: #1f2937;
+}
+#josrachat .jrc-form-error { color: #b91c1c; font-size: 12px; min-height: 0; margin-bottom: 4px; }
+#josrachat .jrc-send-form {
+    width: 100%;
+    padding: 9px;
+    border: 0;
+    border-radius: 8px;
+    background: var(--jrc-color);
+    color: #fff;
+    font-weight: 600;
+    cursor: pointer;
+}
+#josrachat .jrc-back { margin-top: 6px; padding: 2px 0; border: 0; background: none; color: #6b7280; font-size: 12px; text-decoration: underline; cursor: pointer; }
+
+#josrachat .jrc-foot { display: flex; align-items: flex-end; gap: 8px; padding: 10px; border-top: 1px solid #e5e7eb; background: #fff; margin: 0; }
+#josrachat .jrc-input {
+    flex: 1;
+    resize: none;
+    max-height: 110px;
+    padding: 9px 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 10px;
+    font: inherit;
+    color: #1f2937;
+    background: #fff;
+    outline: none;
+}
+#josrachat .jrc-input:focus { border-color: var(--jrc-color); }
+#josrachat .jrc-send {
+    width: 40px;
+    height: 40px;
+    flex: 0 0 40px;
+    border: 0;
+    border-radius: 10px;
+    background: var(--jrc-color);
+    color: #fff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+}
+#josrachat .jrc-send:disabled { opacity: .5; cursor: default; }
+#josrachat .jrc-note { padding: 0 10px 8px; background: #fff; color: #9ca3af; font-size: 11px; text-align: center; }
+
+@media (max-width: 767px) {
+    #josrachat { bottom: 12px !important; }
+    #josrachat.jrc-right { right: 12px !important; }
+    #josrachat.jrc-left { left: 12px !important; }
+    #josrachat.jrc-open { left: 0 !important; right: 0 !important; bottom: 0 !important; top: 0 !important; }
+    #josrachat.jrc-open .jrc-panel { width: 100%; height: 100%; max-height: none; border-radius: 0; }
+    #josrachat .jrc-input { font-size: 16px; }
+}

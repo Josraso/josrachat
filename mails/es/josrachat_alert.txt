@@ -1,0 +1,3 @@
+Aviso del asistente de la tienda - {shop_name}
+
+{message}
