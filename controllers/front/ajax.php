@@ -36,10 +36,10 @@ class JosrachatAjaxModuleFrontController extends ModuleFrontController
 
         if ($action === 'init') {
             if (empty($cookie->josrachat_sid) || !preg_match('/^[a-f0-9]{32}$/', $cookie->josrachat_sid)) {
-                $cookie->josrachat_sid = bin2hex(random_bytes(16));
+                $cookie->josrachat_sid = Josrachat::randomToken();
             }
             if (empty($cookie->josrachat_tok)) {
-                $cookie->josrachat_tok = bin2hex(random_bytes(16));
+                $cookie->josrachat_tok = Josrachat::randomToken();
             }
             $bot = new JosrachatBot($this->context, $this->module);
             $conv = $bot->getConversation($cookie->josrachat_sid);
@@ -69,7 +69,7 @@ class JosrachatAjaxModuleFrontController extends ModuleFrontController
         }
         if ($action === 'reset') {
             // Nueva conversación: la anterior se queda guardada en el back-office.
-            $this->context->cookie->josrachat_sid = bin2hex(random_bytes(16));
+            $this->context->cookie->josrachat_sid = Josrachat::randomToken();
             $this->out(array('ok' => true));
         }
 
@@ -206,6 +206,6 @@ class JosrachatAjaxModuleFrontController extends ModuleFrontController
         $this->context->cookie->write();
         header('Content-Type: application/json; charset=utf-8');
         header('Cache-Control: no-store');
-        die(json_encode($data, defined('JSON_INVALID_UTF8_SUBSTITUTE') ? JSON_INVALID_UTF8_SUBSTITUTE : 0));
+        die(Josrachat::jsonEncode($data));
     }
 }

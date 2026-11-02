@@ -28,11 +28,11 @@ class Josrachat extends Module
     {
         $this->name = 'josrachat';
         $this->tab = 'front_office_features';
-        $this->version = '2.0.3';
+        $this->version = '2.0.4';
         $this->author = 'josra';
         $this->need_instance = 0;
         $this->bootstrap = true;
-        $this->ps_versions_compliancy = array('min' => '1.7.0.0', 'max' => _PS_VERSION_);
+        $this->ps_versions_compliancy = array('min' => '1.6.1.0', 'max' => _PS_VERSION_);
 
         parent::__construct();
 
@@ -274,11 +274,71 @@ class Josrachat extends Module
             if (method_exists($context, 'getCurrentLocale') && $context->getCurrentLocale()) {
                 return $context->getCurrentLocale()->formatPrice((float) $amount, $iso);
             }
+            // PrestaShop 1.6: formato de precios de la propia tienda.
+            if (version_compare(_PS_VERSION_, '1.7.0.0', '<')) {
+                $idCurrency = (int) Currency::getIdByIsoCode($iso);
+                if ($idCurrency) {
+                    return Tools::displayPrice((float) $amount, new Currency($idCurrency));
+                }
+            }
         } catch (Exception $e) {
             // sigue con el formato simple
         }
 
         return number_format((float) $amount, 2, ',', '.') . ' ' . ($iso === 'EUR' ? '€' : $iso);
+    }
+
+    /**
+     * json_encode que nunca falla por texto mal codificado (descripciones antiguas en latin1, cortes raros…).
+     * En PHP 7.2+ sustituye los caracteres inválidos; en versiones anteriores los limpia a mano.
+     */
+    public static function jsonEncode($data)
+    {
+        $flags = defined('JSON_INVALID_UTF8_SUBSTITUTE') ? constant('JSON_INVALID_UTF8_SUBSTITUTE') : 0;
+        $json = json_encode($data, $flags);
+        if ($json !== false) {
+            return $json;
+        }
+        $clean = function ($value) use (&$clean) {
+            if (is_array($value)) {
+                foreach ($value as $k => $v) {
+                    $value[$k] = $clean($v);
+                }
+
+                return $value;
+            }
+            if (is_string($value) && !mb_check_encoding($value, 'UTF-8')) {
+                return mb_convert_encoding($value, 'UTF-8', 'UTF-8, Windows-1252');
+            }
+
+            return $value;
+        };
+        $json = json_encode($clean($data));
+
+        return $json !== false ? $json : '{}';
+    }
+
+    /** Token aleatorio (PHP 5.6 no tiene random_bytes). */
+    public static function randomToken()
+    {
+        if (function_exists('random_bytes')) {
+            return bin2hex(random_bytes(16));
+        }
+        if (function_exists('openssl_random_pseudo_bytes')) {
+            return bin2hex(openssl_random_pseudo_bytes(16));
+        }
+
+        return md5(uniqid(mt_rand(), true) . _COOKIE_KEY_);
+    }
+
+    /** Aviso informativo: Module::displayInformation() no existe en 1.6. */
+    protected function infoBox($text)
+    {
+        if (method_exists($this, 'displayInformation')) {
+            return $this->displayInformation($text);
+        }
+
+        return '<div class="alert alert-info">' . Tools::safeOutput($text) . '</div>';
     }
 
     /** Importe en euros para el back-office: más decimales cuando es menos de 1 €. */
@@ -758,7 +818,7 @@ class Josrachat extends Module
                 );
                 $values = array('id_knowledge' => 0, 'jrc_question' => $question, 'jrc_answer' => $msg['content'], 'jrc_active' => 1, 'jrc_id_message' => (int) $msg['id_message']);
                 $legend = $this->l('Corregir respuesta del asistente');
-                $out .= $this->displayInformation($this->l('Escribe cómo debería haber respondido. Puedes generalizar la pregunta para que sirva a otros clientes (por ejemplo "¿Hacéis envíos a Canarias?" en vez de la frase exacta).'));
+                $out .= $this->infoBox($this->l('Escribe cómo debería haber respondido. Puedes generalizar la pregunta para que sirva a otros clientes (por ejemplo "¿Hacéis envíos a Canarias?" en vez de la frase exacta).'));
             }
         }
         if (Tools::isSubmit('submitJosrachatKnowledge') && (trim((string) Tools::getValue('jrc_question')) === '' || trim((string) Tools::getValue('jrc_answer')) === '')) {

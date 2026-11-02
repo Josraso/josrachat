@@ -123,7 +123,7 @@ class JosrachatClaude
             curl_setopt_array($ch, array(
                 CURLOPT_RETURNTRANSFER => true,
                 CURLOPT_POST => true,
-                CURLOPT_POSTFIELDS => json_encode($payload, defined('JSON_INVALID_UTF8_SUBSTITUTE') ? JSON_INVALID_UTF8_SUBSTITUTE : 0),
+                CURLOPT_POSTFIELDS => Josrachat::jsonEncode($payload),
                 CURLOPT_CONNECTTIMEOUT => 10,
                 CURLOPT_TIMEOUT => $timeout,
                 CURLOPT_HTTPHEADER => $headers,
