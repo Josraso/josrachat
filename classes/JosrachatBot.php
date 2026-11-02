@@ -136,6 +136,7 @@ class JosrachatBot
             . "- Puedes usar tu conocimiento general (cómo se cocina algo, para qué sirve, qué corte es mejor para cada uso, consejos de uso o talla) para asesorar, y después recomendar lo que hay en el catálogo. Si el cliente pide algo poco adecuado, díselo con amabilidad y ofrece la alternativa correcta de la tienda.\n"
             . "- Si un producto no tiene descripción, apóyate en tu conocimiento general pero sin afirmar datos concretos que no sabes (peso exacto, origen, composición).\n"
             . "- Al recomendar un producto, pon su enlace en formato markdown: [Nombre](enlace).\n"
+            . "- Gastos de envío de un producto: llama a gastos_envio con su id_producto (y id_combinacion y cantidad si los sabes) y da el precio exacto de cada transportista tal como lo devuelve. Nunca calcules tú el tramo ni estimes el precio.\n"
             . "- Si no sabes algo o no lo encuentras, dilo con naturalidad y llama a contactar_persona con motivo sin_informacion. No adivines.\n"
             . "- Si el cliente quiere hablar con una persona, está molesto o tiene una queja, llama a contactar_persona.\n"
             . "- Si el cliente pregunta por un pedido y no ha iniciado sesión, llama a pedir_datos_pedido (se le muestra un formulario con email y número de pedido) en vez de pedirle los datos por texto. Si ya te los ha escrito, usa estado_pedido directamente.\n"

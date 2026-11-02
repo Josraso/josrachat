@@ -28,7 +28,7 @@ class Josrachat extends Module
     {
         $this->name = 'josrachat';
         $this->tab = 'front_office_features';
-        $this->version = '2.0.4';
+        $this->version = '2.0.5';
         $this->author = 'josra';
         $this->need_instance = 0;
         $this->bootstrap = true;

@@ -65,10 +65,16 @@ class JosrachatTools
             ),
             array(
                 'name' => 'gastos_envio',
-                'description' => 'Transportistas, plazos y precios de envío para un país, y el importe a partir del cual el envío es gratis.',
+                'description' => 'Precio de envío. Con id_producto calcula el precio EXACTO de cada transportista para ese producto (peso real, combinación y cantidad), como en el carrito: úsalo siempre que pregunten cuánto cuesta enviar algo. Sin producto da las tarifas generales. El precio depende del destino: para España, Baleares, Canarias, Ceuta y Melilla pueden costar distinto, así que si el cliente no lo ha dicho y la herramienta lo indica, pregúntale la provincia.',
                 'input_schema' => array(
                     'type' => 'object',
-                    'properties' => array('pais' => array('type' => 'string', 'description' => 'Nombre o código ISO del país. Si no se indica, el de la tienda.')),
+                    'properties' => array(
+                        'id_producto' => array('type' => 'integer', 'description' => 'Producto a enviar (de buscar_productos o ver_producto).'),
+                        'id_combinacion' => array('type' => 'integer', 'description' => 'Combinación concreta (talla, peso, color…) si el producto tiene combinaciones.'),
+                        'cantidad' => array('type' => 'integer', 'description' => 'Unidades. Por defecto 1.'),
+                        'pais' => array('type' => 'string', 'description' => 'Nombre o código ISO del país. Si no se indica: el de la dirección del cliente o el de la tienda.'),
+                        'provincia' => array('type' => 'string', 'description' => 'Provincia o región, si la ha dicho el cliente.'),
+                    ),
                 ),
             ),
             array(
@@ -133,7 +139,13 @@ class JosrachatTools
                 case 'productos_mas_vendidos':
                     return $this->bestSellers(isset($input['limite']) ? (int) $input['limite'] : 5);
                 case 'gastos_envio':
-                    return $this->shipping(isset($input['pais']) ? (string) $input['pais'] : '');
+                    return $this->shipping(
+                        isset($input['pais']) ? (string) $input['pais'] : '',
+                        isset($input['provincia']) ? (string) $input['provincia'] : '',
+                        isset($input['id_producto']) ? (int) $input['id_producto'] : 0,
+                        isset($input['id_combinacion']) ? (int) $input['id_combinacion'] : 0,
+                        isset($input['cantidad']) ? (int) $input['cantidad'] : 1
+                    );
                 case 'leer_pagina':
                     return $this->readPage(isset($input['tipo']) ? (string) $input['tipo'] : '', isset($input['id']) ? (int) $input['id'] : 0);
                 case 'estado_pedido':
@@ -245,6 +257,9 @@ class JosrachatTools
         }
         $line .= ' | ' . $this->priceText($p);
         $line .= ' | ' . $this->stockText($p, 0);
+        if ((float) $p->weight > 0) {
+            $line .= ' | ' . $this->weightText((float) $p->weight);
+        }
         $cat = new Category((int) $p->id_category_default, $this->idLang, $this->idShop);
         if (Validate::isLoadedObject($cat)) {
             $line .= ' | Categoría: ' . $cat->name;
@@ -276,6 +291,11 @@ class JosrachatTools
         }
         $txt .= 'Precio: ' . $this->priceText($p) . "\n";
         $txt .= 'Disponibilidad: ' . $this->stockText($p, 0) . "\n";
+        $txt .= 'Peso: ' . $this->weightText((float) $p->weight) . "\n";
+        if ((float) $p->width > 0 || (float) $p->height > 0 || (float) $p->depth > 0) {
+            $unit = (string) Configuration::get('PS_DIMENSION_UNIT');
+            $txt .= 'Medidas del paquete: ' . (float) $p->width . ' x ' . (float) $p->height . ' x ' . (float) $p->depth . ' ' . $unit . "\n";
+        }
         $txt .= 'Enlace: ' . $this->context->link->getProductLink($p) . "\n";
 
         $features = Product::getFrontFeaturesStatic($this->idLang, (int) $p->id);
@@ -289,14 +309,16 @@ class JosrachatTools
         $combos = $p->getAttributeCombinations($this->idLang, true);
         if ($combos) {
             $byIpa = array();
+            $ipaWeight = array();
             foreach ($combos as $c) {
                 $ipa = (int) $c['id_product_attribute'];
                 if (!isset($byIpa[$ipa])) {
                     $byIpa[$ipa] = array();
                 }
                 $byIpa[$ipa][] = $c['group_name'] . ': ' . $c['attribute_name'];
+                $ipaWeight[$ipa] = (float) $p->weight + (isset($c['weight']) ? (float) $c['weight'] : 0);
             }
-            $txt .= "Combinaciones (precio con IVA y stock):\n";
+            $txt .= "Combinaciones ([id_combinacion] atributos → precio con IVA, stock y peso):\n";
             $n = 0;
             foreach ($byIpa as $ipa => $labels) {
                 if (++$n > 40) {
@@ -304,7 +326,7 @@ class JosrachatTools
                     break;
                 }
                 $price = Product::getPriceStatic((int) $p->id, true, $ipa, 2);
-                $txt .= '  ' . implode(', ', $labels) . ' → ' . $this->money($price) . ', ' . $this->stockText($p, $ipa) . "\n";
+                $txt .= '  [' . (int) $ipa . '] ' . implode(', ', $labels) . ' → ' . $this->money($price) . ', ' . $this->stockText($p, $ipa) . ', ' . $this->weightText($ipaWeight[$ipa]) . "\n";
             }
         }
 
@@ -380,10 +402,27 @@ class JosrachatTools
 
     // ---------------------------------------------------------------- envíos
 
-    protected function shipping($country)
+    protected function weightText($weight)
     {
-        $idCountry = 0;
+        $unit = (string) Configuration::get('PS_WEIGHT_UNIT');
+        if ($weight <= 0) {
+            return 'sin peso indicado';
+        }
+
+        return rtrim(rtrim(number_format($weight, 3, ',', '.'), '0'), ',') . ' ' . ($unit !== '' ? $unit : 'kg');
+    }
+
+    /**
+     * Destino: país, provincia y zona como hace PrestaShop con una dirección
+     * (la zona de la provincia manda sobre la del país: Baleares, Canarias…).
+     */
+    protected function resolveDestination($country, $state)
+    {
         $country = trim($country);
+        $state = trim($state);
+        $idCountry = 0;
+        $idState = 0;
+
         if ($country !== '') {
             if (Tools::strlen($country) === 2) {
                 $idCountry = (int) Country::getByIso(Tools::strtoupper($country), true);
@@ -392,26 +431,89 @@ class JosrachatTools
                 $idCountry = (int) Db::getInstance()->getValue(
                     'SELECT c.`id_country` FROM `' . _DB_PREFIX_ . 'country` c
                      INNER JOIN `' . _DB_PREFIX_ . 'country_lang` cl ON cl.`id_country` = c.`id_country` AND cl.`id_lang` = ' . (int) $this->idLang . '
-                     WHERE c.`active` = 1 AND cl.`name` LIKE "%' . pSQL($country) . '%"'
+                     WHERE c.`active` = 1 AND cl.`name` LIKE "%' . pSQL($country) . '%"
+                     ORDER BY CHAR_LENGTH(cl.`name`) ASC'
                 );
             }
             if (!$idCountry) {
-                return 'La tienda no envía a "' . $country . '" o ese país no está activo.';
+                return array('error' => 'La tienda no envía a "' . $country . '" o ese país no está activo.');
             }
-        } else {
+        } elseif ($this->context->customer && $this->context->customer->isLogged()) {
+            // Cliente con sesión: el país y la provincia de su dirección más reciente.
+            $addr = Db::getInstance()->getRow(
+                'SELECT `id_country`, `id_state` FROM `' . _DB_PREFIX_ . 'address`
+                 WHERE `id_customer` = ' . (int) $this->context->customer->id . ' AND `deleted` = 0
+                 ORDER BY `date_upd` DESC'
+            );
+            if ($addr) {
+                $idCountry = (int) $addr['id_country'];
+                if ($state === '') {
+                    $idState = (int) $addr['id_state'];
+                }
+            }
+        }
+        if (!$idCountry) {
             $idCountry = (int) Configuration::get('PS_COUNTRY_DEFAULT');
         }
-        $countryObj = new Country($idCountry, $this->idLang);
-        $idZone = (int) Country::getIdZone($idCountry);
-        $carriers = Carrier::getCarriers($this->idLang, true, false, $idZone, null, Carrier::ALL_CARRIERS);
-        if (!$carriers) {
-            return 'No hay transportistas para ' . $countryObj->name . '.';
-        }
-        $address = new Address();
-        $address->id_country = $idCountry;
-        $handling = (float) Configuration::get('PS_SHIPPING_HANDLING');
 
-        $txt = 'Envíos a ' . $countryObj->name . ":\n";
+        if ($state !== '' && !$idState) {
+            $idState = (int) Db::getInstance()->getValue(
+                'SELECT `id_state` FROM `' . _DB_PREFIX_ . 'state`
+                 WHERE `id_country` = ' . (int) $idCountry . ' AND `active` = 1
+                   AND (`name` LIKE "%' . pSQL($state) . '%" OR `iso_code` = "' . pSQL(Tools::strtoupper($state)) . '")
+                 ORDER BY CHAR_LENGTH(`name`) ASC'
+            );
+        }
+
+        $countryObj = new Country($idCountry, $this->idLang);
+        $idZone = (int) $countryObj->id_zone;
+        $label = $countryObj->name;
+        if ($idState) {
+            $stateRow = Db::getInstance()->getRow('SELECT `name`, `id_zone` FROM `' . _DB_PREFIX_ . 'state` WHERE `id_state` = ' . (int) $idState);
+            if ($stateRow) {
+                $label = $stateRow['name'] . ' (' . $countryObj->name . ')';
+                if ((int) $stateRow['id_zone']) {
+                    $idZone = (int) $stateRow['id_zone'];
+                }
+            }
+        }
+
+        // ¿Hay provincias de este país con otra zona? Entonces el precio depende de la provincia.
+        $statesMatter = false;
+        if (!$idState && $countryObj->contains_states) {
+            $statesMatter = (bool) Db::getInstance()->getValue(
+                'SELECT 1 FROM `' . _DB_PREFIX_ . 'state`
+                 WHERE `id_country` = ' . (int) $idCountry . ' AND `active` = 1 AND `id_zone` > 0 AND `id_zone` != ' . (int) $countryObj->id_zone
+            );
+        }
+
+        return array(
+            'id_country' => $idCountry,
+            'id_state' => $idState,
+            'id_zone' => $idZone,
+            'label' => $label,
+            'states_matter' => $statesMatter,
+        );
+    }
+
+    protected function shipping($country, $state = '', $idProduct = 0, $idCombination = 0, $quantity = 1)
+    {
+        $dest = $this->resolveDestination($country, $state);
+        if (isset($dest['error'])) {
+            return $dest['error'];
+        }
+        if ($idProduct > 0) {
+            return $this->shippingQuote($dest, (int) $idProduct, (int) $idCombination, max(1, (int) $quantity));
+        }
+
+        $idZone = (int) $dest['id_zone'];
+        $carriers = Carrier::getCarriers($this->idLang, true, false, $idZone, $this->customerGroups(), Carrier::ALL_CARRIERS);
+        if (!$carriers) {
+            return 'No hay transportistas para ' . $dest['label'] . '.';
+        }
+        $address = $this->fakeAddress($dest);
+
+        $txt = 'Tarifas generales de envío a ' . $dest['label'] . " (para un producto concreto usa id_producto y te doy el precio exacto):\n";
         foreach ($carriers as $c) {
             $carrier = new Carrier((int) $c['id_carrier'], $this->idLang);
             $line = '- ' . $c['name'] . ($c['delay'] ? ' (' . $c['delay'] . ')' : '');
@@ -424,42 +526,269 @@ class JosrachatTools
                 continue;
             }
             $method = $carrier->getShippingMethod();
-            $table = $method === Carrier::SHIPPING_METHOD_WEIGHT ? 'range_weight' : 'range_price';
-            $idCol = $method === Carrier::SHIPPING_METHOD_WEIGHT ? 'id_range_weight' : 'id_range_price';
+            $byWeight = $method == Carrier::SHIPPING_METHOD_WEIGHT;
+            $table = $byWeight ? 'range_weight' : 'range_price';
+            $idCol = $byWeight ? 'id_range_weight' : 'id_range_price';
             $ranges = Db::getInstance()->executeS(
                 'SELECT r.`delimiter1`, r.`delimiter2`, d.`price` FROM `' . _DB_PREFIX_ . 'delivery` d
                  INNER JOIN `' . _DB_PREFIX_ . $table . '` r ON r.`' . $idCol . '` = d.`' . $idCol . '`
                  WHERE d.`id_carrier` = ' . (int) $carrier->id . ' AND d.`id_zone` = ' . $idZone . '
                    AND (d.`id_shop` IS NULL OR d.`id_shop` = ' . (int) $this->idShop . ')
-                 ORDER BY r.`delimiter1` ASC LIMIT 12'
+                 ORDER BY r.`delimiter1` ASC LIMIT 15'
             );
             if (!$ranges) {
-                $txt .= $line . ": precio según el carrito\n";
                 continue;
             }
-            $rate = (float) $carrier->getTaxesRate($address);
             $parts = array();
             foreach ($ranges as $r) {
-                $price = (float) $r['price'] + ($carrier->shipping_handling ? $handling : 0);
-                $price = $price * (1 + $rate / 100);
-                $from = (float) $r['delimiter1'];
-                $to = (float) $r['delimiter2'];
-                $unit = $method === Carrier::SHIPPING_METHOD_WEIGHT ? ' ' . Configuration::get('PS_WEIGHT_UNIT') : ' €';
-                $parts[] = 'de ' . rtrim(rtrim(number_format($from, 2, ',', ''), '0'), ',') . $unit . ' a ' . rtrim(rtrim(number_format($to, 2, ',', ''), '0'), ',') . $unit . ': ' . ($price > 0 ? $this->money($price) : 'gratis');
+                $price = $this->finishCarrierPrice($carrier, (float) $r['price'], $address, 0);
+                $unit = $byWeight ? ' ' . Configuration::get('PS_WEIGHT_UNIT') : ' €';
+                $parts[] = 'de ' . $this->num((float) $r['delimiter1']) . $unit . ' a ' . $this->num((float) $r['delimiter2']) . $unit . ': ' . ($price > 0 ? $this->money($price) : 'gratis');
             }
-            $txt .= $line . ' (' . ($method === Carrier::SHIPPING_METHOD_WEIGHT ? 'según peso' : 'según importe del pedido') . '): ' . implode('; ', $parts) . "\n";
+            $txt .= $line . ' (' . ($byWeight ? 'según peso' : 'según importe del pedido') . '): ' . implode('; ', $parts) . "\n";
         }
+        $txt .= $this->freeShippingText();
+        if ($dest['states_matter']) {
+            $txt .= "Ojo: en este país algunas provincias tienen otra tarifa. Si el cliente no ha dicho la provincia, pregúntasela.\n";
+        }
+
+        return $txt;
+    }
+
+    /**
+     * Precio exacto de cada transportista para un producto, con la misma lógica que el carrito de PrestaShop
+     * (Cart::getPackageShippingCost y Carrier::getAvailableCarrierList) pero sin crear carritos.
+     */
+    protected function shippingQuote(array $dest, $idProduct, $idCombination, $quantity)
+    {
+        $p = new Product($idProduct, false, $this->idLang, $this->idShop);
+        if (!Validate::isLoadedObject($p) || !$p->active) {
+            return 'Ese producto no existe o no está a la venta.';
+        }
+        if (!empty($p->is_virtual)) {
+            return 'Es un producto virtual: no tiene gastos de envío.';
+        }
+        $db = Db::getInstance();
+
+        // Combinación: la indicada, o la por defecto si el producto tiene combinaciones.
+        $combos = $db->executeS(
+            'SELECT pa.`id_product_attribute`, pa.`weight`, pas.`default_on`
+             FROM `' . _DB_PREFIX_ . 'product_attribute` pa
+             INNER JOIN `' . _DB_PREFIX_ . 'product_attribute_shop` pas ON pas.`id_product_attribute` = pa.`id_product_attribute` AND pas.`id_shop` = ' . (int) $this->idShop . '
+             WHERE pa.`id_product` = ' . (int) $p->id
+        );
+        $comboWeight = 0.0;
+        $comboNote = '';
+        if ($combos) {
+            $chosen = null;
+            foreach ($combos as $c) {
+                if ((int) $c['id_product_attribute'] === $idCombination) {
+                    $chosen = $c;
+                }
+            }
+            if (!$chosen) {
+                foreach ($combos as $c) {
+                    if ((int) $c['default_on']) {
+                        $chosen = $c;
+                    }
+                }
+                $chosen = $chosen ? $chosen : $combos[0];
+                if (count($combos) > 1) {
+                    $comboNote = 'Calculado con la combinación por defecto. Si el cliente quiere otra (otro peso o tamaño), vuelve a calcular con su id_combinacion.';
+                }
+            }
+            $idCombination = (int) $chosen['id_product_attribute'];
+            $comboWeight = (float) $chosen['weight'];
+        } else {
+            $idCombination = 0;
+        }
+
+        // Peso como Cart::getTotalWeight: producto + impacto de la combinación, por unidades.
+        $unitWeight = (float) $p->weight + $comboWeight;
+        $weight = round($unitWeight * $quantity, 6);
+        // Importe como el carrito: precio con IVA por unidades (para tramos por importe y envío gratis).
+        $unitPrice = (float) Product::getPriceStatic((int) $p->id, true, $idCombination ? $idCombination : null, 6);
+        $orderTotal = $unitPrice * $quantity;
+        $idCurrency = (int) $this->context->currency->id;
+        $idZone = (int) $dest['id_zone'];
+        $address = $this->fakeAddress($dest);
+        $name = Product::getProductName((int) $p->id, $idCombination ? $idCombination : null, $this->idLang);
+
+        $txt = 'Envío de ' . $quantity . ' x ' . $name . ' a ' . $dest['label'] . "\n";
+        $txt .= 'Peso total: ' . $this->weightText($weight) . ' | Importe de los productos: ' . $this->money($orderTotal) . "\n";
+        if ($weight <= 0) {
+            $txt .= "Aviso: el producto no tiene peso en la tienda; los transportistas por peso aplican su primer tramo.\n";
+        }
+
+        // Envío gratis general de la tienda.
+        $freePrice = (float) Configuration::get('PS_SHIPPING_FREE_PRICE');
+        $freeWeight = (float) Configuration::get('PS_SHIPPING_FREE_WEIGHT');
+        $freeByPrice = $freePrice > 0 && $orderTotal >= (float) Tools::convertPrice($freePrice, $this->context->currency);
+        $freeByWeight = $freeWeight > 0 && $weight >= $freeWeight;
+
+        // Transportistas permitidos para este producto (pestaña Transporte de la ficha).
+        $allowedRefs = array();
+        foreach ($db->executeS(
+            'SELECT `id_carrier_reference` FROM `' . _DB_PREFIX_ . 'product_carrier`
+             WHERE `id_product` = ' . (int) $p->id . ' AND `id_shop` = ' . (int) $this->idShop
+        ) as $r) {
+            $allowedRefs[(int) $r['id_carrier_reference']] = true;
+        }
+
+        $carriers = Carrier::getCarriers($this->idLang, true, false, $idZone, $this->customerGroups(), Carrier::ALL_CARRIERS);
+        $options = array();
+        $excluded = array();
+        foreach ($carriers as $c) {
+            $carrier = new Carrier((int) $c['id_carrier'], $this->idLang);
+            if (!Validate::isLoadedObject($carrier)) {
+                continue;
+            }
+            $label = $c['name'] . ($c['delay'] ? ' (' . $c['delay'] . ')' : '');
+            if ($allowedRefs && !isset($allowedRefs[(int) $carrier->id_reference])) {
+                continue;
+            }
+            if ((float) $carrier->max_weight > 0 && $weight > (float) $carrier->max_weight) {
+                $excluded[] = $c['name'] . ' (admite hasta ' . $this->weightText((float) $carrier->max_weight) . ')';
+                continue;
+            }
+            if (((int) $carrier->max_width > 0 && (int) $carrier->max_width < (int) $p->width)
+                || ((int) $carrier->max_height > 0 && (int) $carrier->max_height < (int) $p->height)
+                || ((int) $carrier->max_depth > 0 && (int) $carrier->max_depth < (int) $p->depth)) {
+                $excluded[] = $c['name'] . ' (el paquete supera sus medidas)';
+                continue;
+            }
+            if ($carrier->is_free) {
+                $options[] = array('label' => $label, 'price' => 0.0);
+                continue;
+            }
+            if ($carrier->is_module && $carrier->shipping_external) {
+                $options[] = array('label' => $label, 'price' => null);
+                continue;
+            }
+
+            $byWeight = $carrier->getShippingMethod() == Carrier::SHIPPING_METHOD_WEIGHT;
+            if ($byWeight) {
+                if ($carrier->getMaxDeliveryPriceByWeight($idZone) === false) {
+                    continue; // sin tarifas para esta zona
+                }
+                if ($carrier->range_behavior && Carrier::checkDeliveryPriceByWeight((int) $carrier->id, $weight, $idZone) === false) {
+                    $excluded[] = $c['name'] . ' (el peso se sale de sus tramos)';
+                    continue;
+                }
+            } else {
+                if ($carrier->getMaxDeliveryPriceByPrice($idZone) === false) {
+                    continue;
+                }
+                if ($carrier->range_behavior && Carrier::checkDeliveryPriceByPrice((int) $carrier->id, $orderTotal, $idZone, $idCurrency) === false) {
+                    $excluded[] = $c['name'] . ' (el importe se sale de sus tramos)';
+                    continue;
+                }
+            }
+
+            if ($freeByPrice || $freeByWeight) {
+                $options[] = array('label' => $label, 'price' => 0.0);
+                continue;
+            }
+            $base = $byWeight
+                ? (float) $carrier->getDeliveryPriceByWeight($weight, $idZone)
+                : (float) $carrier->getDeliveryPriceByPrice($orderTotal, $idZone, $idCurrency);
+            $extra = (float) $p->additional_shipping_cost * $quantity;
+            $options[] = array('label' => $label, 'price' => $this->finishCarrierPrice($carrier, $base, $address, $extra));
+        }
+
+        if (!$options) {
+            $txt .= 'Ningún transportista puede enviar este producto a ' . $dest['label'] . '.';
+            if ($excluded) {
+                $txt .= ' Motivo: ' . implode('; ', $excluded) . '.';
+            }
+
+            return $txt . " Ofrece el contacto con una persona.\n";
+        }
+        usort($options, function ($a, $b) {
+            if ($a['price'] === null) {
+                return 1;
+            }
+            if ($b['price'] === null) {
+                return -1;
+            }
+
+            return $a['price'] < $b['price'] ? -1 : ($a['price'] > $b['price'] ? 1 : 0);
+        });
+        $txt .= "Precio de envío por transportista (IVA incluido, igual que en el carrito):\n";
+        foreach ($options as $o) {
+            $txt .= '- ' . $o['label'] . ': ' . ($o['price'] === null ? 'lo calcula el transportista en el carrito' : ($o['price'] > 0 ? $this->money($o['price']) : 'gratis')) . "\n";
+        }
+        if ($excluded) {
+            $txt .= 'No disponibles para este envío: ' . implode('; ', $excluded) . ".\n";
+        }
+        if ($freeByPrice || $freeByWeight) {
+            $txt .= "Este pedido ya tiene envío gratis.\n";
+        } elseif ($freePrice > 0) {
+            $txt .= 'Envío gratis a partir de ' . $this->money((float) Tools::convertPrice($freePrice, $this->context->currency)) . ' (le faltan ' . $this->money((float) Tools::convertPrice($freePrice, $this->context->currency) - $orderTotal) . ").\n";
+        }
+        if ($comboNote !== '') {
+            $txt .= $comboNote . "\n";
+        }
+        if ($dest['states_matter']) {
+            $txt .= "Ojo: en este país algunas provincias tienen otra tarifa (por ejemplo islas). Calculado para la tarifa general: si el cliente no ha dicho la provincia, pregúntasela o aclárale que es el precio peninsular.\n";
+        }
+        $txt .= "Si en el carrito hay más productos, el envío se calcula sobre el total. Las promociones de envío gratis con cupón no salen aquí.\n";
+
+        return $txt;
+    }
+
+    /** Manipulación, moneda e IVA del transportista, como Cart::getPackageShippingCost. */
+    protected function finishCarrierPrice(Carrier $carrier, $base, Address $address, $extra)
+    {
+        $cost = (float) $base;
+        if ($carrier->shipping_handling) {
+            $cost += (float) Configuration::get('PS_SHIPPING_HANDLING');
+        }
+        $cost += (float) $extra;
+        $cost = (float) Tools::convertPrice($cost, $this->context->currency);
+        if (Configuration::get('PS_TAX') && !Configuration::get('PS_ATCP_SHIPWRAP')) {
+            $cost *= 1 + ((float) $carrier->getTaxesRate($address) / 100);
+        }
+
+        return round($cost, 2);
+    }
+
+    protected function fakeAddress(array $dest)
+    {
+        $address = new Address();
+        $address->id_country = (int) $dest['id_country'];
+        $address->id_state = (int) $dest['id_state'];
+        $address->postcode = '';
+
+        return $address;
+    }
+
+    protected function customerGroups()
+    {
+        $idCustomer = ($this->context->customer && $this->context->customer->isLogged()) ? (int) $this->context->customer->id : 0;
+        $groups = Customer::getGroupsStatic($idCustomer);
+
+        return $groups ? $groups : null;
+    }
+
+    protected function freeShippingText()
+    {
+        $txt = '';
         $freePrice = (float) Configuration::get('PS_SHIPPING_FREE_PRICE');
         if ($freePrice > 0) {
-            $txt .= 'Envío gratis en pedidos desde ' . $this->money($freePrice) . ".\n";
+            $txt .= 'Envío gratis en pedidos desde ' . $this->money((float) Tools::convertPrice($freePrice, $this->context->currency)) . ".\n";
         }
         $freeWeight = (float) Configuration::get('PS_SHIPPING_FREE_WEIGHT');
         if ($freeWeight > 0) {
-            $txt .= 'Envío gratis en pedidos desde ' . $freeWeight . ' ' . Configuration::get('PS_WEIGHT_UNIT') . ".\n";
+            $txt .= 'Envío gratis en pedidos desde ' . $this->weightText($freeWeight) . ".\n";
         }
-        $txt .= "El importe definitivo se ve en el carrito. Pueden existir promociones que no salen aquí.\n";
 
-        return $txt;
+        return $txt . "El importe definitivo se ve en el carrito. Pueden existir promociones que no salen aquí.\n";
+    }
+
+    protected function num($n)
+    {
+        return rtrim(rtrim(number_format((float) $n, 2, ',', ''), '0'), ',');
     }
 
     // ---------------------------------------------------------------- páginas y documentos
