@@ -12,6 +12,7 @@ require_once _PS_MODULE_DIR_ . 'josrachat/classes/JosrachatDb.php';
 require_once _PS_MODULE_DIR_ . 'josrachat/classes/JosrachatClaude.php';
 require_once _PS_MODULE_DIR_ . 'josrachat/classes/JosrachatTools.php';
 require_once _PS_MODULE_DIR_ . 'josrachat/classes/JosrachatBot.php';
+require_once _PS_MODULE_DIR_ . 'josrachat/classes/JosrachatSchedule.php';
 
 class JosrachatAjaxModuleFrontController extends ModuleFrontController
 {
@@ -29,6 +30,10 @@ class JosrachatAjaxModuleFrontController extends ModuleFrontController
 
         if (!Configuration::get('JOSRACHAT_ACTIVE')) {
             $this->out(array('ok' => false, 'error' => 'disabled'));
+        }
+        // Fuera de horario el asistente no responde; el formulario de contacto sigue funcionando.
+        if (Tools::getValue('action') !== 'contact' && !JosrachatSchedule::isOpen()) {
+            $this->out(array('ok' => false, 'error' => 'closed'));
         }
 
         $action = Tools::getValue('action');

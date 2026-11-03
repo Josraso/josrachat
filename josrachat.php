@@ -14,6 +14,7 @@ require_once __DIR__ . '/classes/JosrachatDb.php';
 require_once __DIR__ . '/classes/JosrachatClaude.php';
 require_once __DIR__ . '/classes/JosrachatTools.php';
 require_once __DIR__ . '/classes/JosrachatBot.php';
+require_once __DIR__ . '/classes/JosrachatSchedule.php';
 
 class Josrachat extends Module
 {
@@ -28,7 +29,7 @@ class Josrachat extends Module
     {
         $this->name = 'josrachat';
         $this->tab = 'front_office_features';
-        $this->version = '2.0.5';
+        $this->version = '2.0.6';
         $this->author = 'josra';
         $this->need_instance = 0;
         $this->bootstrap = true;
@@ -87,6 +88,10 @@ class Josrachat extends Module
         }
         Configuration::updateValue('JOSRACHAT_WELCOME', $welcome);
         Configuration::updateValue('JOSRACHAT_ORDER_INSTRUCTIONS', JosrachatBot::defaultOrderInstructions());
+        if (Configuration::get('JOSRACHAT_SCHEDULE') === false) {
+            Configuration::updateValue('JOSRACHAT_SCHEDULE_ENABLED', 0);
+            Configuration::updateValue('JOSRACHAT_SCHEDULE', json_encode(JosrachatSchedule::defaults()));
+        }
 
         return true;
     }
@@ -106,6 +111,10 @@ class Josrachat extends Module
         $error = JosrachatDb::ensure();
         if (Configuration::get('JOSRACHAT_ORDER_INSTRUCTIONS') === false) {
             Configuration::updateValue('JOSRACHAT_ORDER_INSTRUCTIONS', JosrachatBot::defaultOrderInstructions());
+        }
+        if (Configuration::get('JOSRACHAT_SCHEDULE') === false) {
+            Configuration::updateValue('JOSRACHAT_SCHEDULE_ENABLED', 0);
+            Configuration::updateValue('JOSRACHAT_SCHEDULE', json_encode(JosrachatSchedule::defaults()));
         }
         foreach ($this->moduleHooks as $hook) {
             if (!$this->isRegisteredInHook($hook)) {
@@ -127,6 +136,9 @@ class Josrachat extends Module
             return '';
         }
         self::$headerDone = true;
+        if (!JosrachatSchedule::isOpen()) {
+            return '';
+        }
 
         $idLang = (int) $this->context->language->id;
         $iso = $this->context->language->iso_code;
@@ -178,6 +190,7 @@ class Josrachat extends Module
                 'note' => 'Respuestas automáticas generadas con IA. Pueden contener errores.',
                 'error' => 'No he podido responder ahora mismo. Inténtalo de nuevo o contacta con nosotros.',
                 'formError' => 'Rellena el nombre, un email válido y el mensaje.',
+                'closed' => 'El asistente está fuera de horario. Si lo necesitas, puedes escribirnos por aquí:',
             ) : array(
                 'open' => 'Open the assistant',
                 'subtitle' => 'Automated assistant',
@@ -203,6 +216,7 @@ class Josrachat extends Module
                 'note' => 'Automated AI answers. They may contain mistakes.',
                 'error' => 'I could not answer right now. Try again or contact us.',
                 'formError' => 'Please fill in your name, a valid email and the message.',
+                'closed' => 'The assistant is outside opening hours. If you need help, you can write to us here:',
             ),
         )));
 
@@ -375,7 +389,7 @@ class Josrachat extends Module
         }
 
         $tab = Tools::getValue('josrachat_tab', 'config');
-        if (!in_array($tab, array('config', 'knowledge', 'conversations', 'usage'), true)) {
+        if (!in_array($tab, array('config', 'schedule', 'knowledge', 'conversations', 'usage'), true)) {
             $tab = 'config';
         }
 
@@ -390,6 +404,9 @@ class Josrachat extends Module
                 break;
             case 'conversations':
                 $out .= $this->renderConversationsTab();
+                break;
+            case 'schedule':
+                $out .= $this->renderScheduleTab();
                 break;
             case 'usage':
                 $out .= $this->renderUsageTab();
@@ -409,6 +426,7 @@ class Josrachat extends Module
         );
         $tabs = array(
             'config' => array('label' => $this->l('Configuración'), 'icon' => 'icon-cogs', 'badge' => 0),
+            'schedule' => array('label' => $this->l('Horario'), 'icon' => 'icon-time', 'badge' => 0),
             'knowledge' => array('label' => $this->l('Conocimiento'), 'icon' => 'icon-book', 'badge' => 0),
             'conversations' => array('label' => $this->l('Conversaciones'), 'icon' => 'icon-comments', 'badge' => $attention),
             'usage' => array('label' => $this->l('Consumo'), 'icon' => 'icon-bar-chart', 'badge' => 0),
@@ -423,6 +441,10 @@ class Josrachat extends Module
             $warnings[] = $this->l('El asistente está desactivado: no se muestra en la tienda.');
         } elseif (trim((string) Configuration::get('JOSRACHAT_API_KEY')) === '') {
             $warnings[] = $this->l('Falta la API Key de Anthropic: el asistente no se muestra hasta que la pongas.');
+        }
+        if (Configuration::get('JOSRACHAT_ACTIVE') && !JosrachatSchedule::isOpen()) {
+            $next = JosrachatSchedule::nextOpening();
+            $warnings[] = $this->l('Fuera de horario: el asistente está oculto en la tienda ahora mismo.') . ($next !== '' ? ' ' . sprintf($this->l('Vuelve a aparecer %s.'), $next) : '');
         }
         $block = JosrachatClaude::budgetBlock((int) $this->context->shop->id, $this);
         if ($block !== '') {
@@ -449,6 +471,14 @@ class Josrachat extends Module
         // Configuración
         if (Tools::isSubmit('submitJosrachatConfig')) {
             $out .= $this->saveConfig();
+        }
+        if (Tools::isSubmit('submitJosrachatSchedule')) {
+            $errors = JosrachatSchedule::saveFromRequest();
+            if ($errors) {
+                $out .= $this->displayError($this->l('No se ha guardado el horario:') . '<br>' . implode('<br>', array_map('Tools::safeOutput', $errors)));
+            } else {
+                $out .= $this->displayConfirmation($this->l('Horario guardado.'));
+            }
         }
         if (Tools::isSubmit('submitJosrachatTest')) {
             $out .= $this->testConnection();
@@ -1171,6 +1201,40 @@ class Josrachat extends Module
         ));
 
         return $this->context->smarty->fetch(_PS_MODULE_DIR_ . $this->name . '/views/templates/admin/conversation.tpl');
+    }
+
+    // ---------------------------------------------------------------- pestaña horario
+
+    protected function renderScheduleTab()
+    {
+        $schedule = JosrachatSchedule::get();
+        // Si el guardado ha fallado, se vuelve a pintar lo que el usuario había puesto.
+        if (Tools::isSubmit('submitJosrachatSchedule')) {
+            foreach (JosrachatSchedule::$days as $d) {
+                $schedule[$d] = array(
+                    'enabled' => (int) Tools::getValue('jrc_day_' . $d),
+                    't1_from' => JosrachatSchedule::sanitizeTime(Tools::getValue('jrc_t1_from_' . $d)),
+                    't1_to' => JosrachatSchedule::sanitizeTime(Tools::getValue('jrc_t1_to_' . $d)),
+                    't2_enabled' => (int) Tools::getValue('jrc_t2_' . $d),
+                    't2_from' => JosrachatSchedule::sanitizeTime(Tools::getValue('jrc_t2_from_' . $d)),
+                    't2_to' => JosrachatSchedule::sanitizeTime(Tools::getValue('jrc_t2_to_' . $d)),
+                );
+            }
+        }
+        $now = JosrachatSchedule::now();
+        $this->context->smarty->assign(array(
+            'jrc_action' => $this->adminUrl(array('josrachat_tab' => 'schedule')),
+            'jrc_sched_enabled' => (int) Tools::getValue('JOSRACHAT_SCHEDULE_ENABLED', Configuration::get('JOSRACHAT_SCHEDULE_ENABLED')),
+            'jrc_schedule' => $schedule,
+            'jrc_days' => JosrachatSchedule::$days,
+            'jrc_day_labels' => JosrachatSchedule::labels(),
+            'jrc_open_now' => JosrachatSchedule::isOpen(),
+            'jrc_next_open' => JosrachatSchedule::nextOpening(),
+            'jrc_now' => $now->format('d/m/Y H:i'),
+            'jrc_tz' => $now->getTimezone()->getName(),
+        ));
+
+        return $this->context->smarty->fetch(_PS_MODULE_DIR_ . $this->name . '/views/templates/admin/schedule.tpl');
     }
 
     // ---------------------------------------------------------------- pestaña consumo

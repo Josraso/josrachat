@@ -260,6 +260,14 @@
             });
         }
 
+        // Fuera de horario: el asistente desaparece de la página.
+        function hideClosed() {
+            storeSet('josrachat_open', '0');
+            if (root.parentNode) {
+                root.parentNode.removeChild(root);
+            }
+        }
+
         var typing = null;
         function setTyping(on) {
             if (on && !typing) {
@@ -282,6 +290,10 @@
         function load(cb) {
             if (state.loaded) { cb(); return; }
             post({ action: 'init' }, function (r) {
+                if (r && r.error === 'closed') {
+                    hideClosed();
+                    return;
+                }
                 if (!r || !r.ok) {
                     addMsg('bot', T.error);
                     return;
@@ -338,6 +350,12 @@
                 setTyping(false);
                 state.busy = false;
                 send.disabled = false;
+                if (r && r.error === 'closed') {
+                    addMsg('bot', T.closed);
+                    showContact(true);
+                    setTimeout(hideClosed, 8000);
+                    return;
+                }
                 if (!r || !r.ok) {
                     addMsg('bot', T.error);
                     showContact(true);
