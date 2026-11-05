@@ -29,7 +29,7 @@ class Josrachat extends Module
     {
         $this->name = 'josrachat';
         $this->tab = 'front_office_features';
-        $this->version = '2.0.6';
+        $this->version = '2.0.7';
         $this->author = 'josra';
         $this->need_instance = 0;
         $this->bootstrap = true;
@@ -485,6 +485,12 @@ class Josrachat extends Module
         }
 
         // Conocimiento: respuestas validadas
+        if (Tools::getValue('jrc_export_faq')) {
+            $this->exportFaq();
+        }
+        if (Tools::isSubmit('submitJosrachatImportFaq')) {
+            $out .= $this->importFaq();
+        }
         if (Tools::isSubmit('submitJosrachatKnowledge')) {
             $q = trim((string) Tools::getValue('jrc_question'));
             $a = trim((string) Tools::getValue('jrc_answer'));
@@ -896,6 +902,24 @@ class Josrachat extends Module
             'date_upd' => array('title' => $this->l('Actualizada'), 'class' => 'fixed-width-lg', 'search' => false, 'orderby' => false),
         ));
 
+        // Exportar e importar respuestas validadas
+        $importForm = array('form' => array(
+            'legend' => array('title' => $this->l('Exportar e importar respuestas validadas'), 'icon' => 'icon-exchange'),
+            'description' => $this->l('Sirve para copiarlas de una tienda a otra o para editarlas en Excel. El archivo es un CSV con las columnas pregunta, respuesta y activa (1 o 0), separado por punto y coma y en UTF-8. Al importar también se aceptan archivos separados por comas o tabuladores.'),
+            'input' => array(
+                array('type' => 'html', 'name' => 'jrc_export_btn', 'html_content' => '<a class="btn btn-default" href="' . Tools::safeOutput($this->adminUrl(array('josrachat_tab' => 'knowledge', 'jrc_export_faq' => 1))) . '"><i class="icon-download"></i> ' . $this->l('Exportar respuestas validadas (CSV)') . '</a> <span class="help-block" style="display:inline;margin-left:8px;">' . sprintf($this->l('%d respuestas en esta tienda.'), count($rows)) . '</span>'),
+                array('type' => 'file', 'label' => $this->l('Archivo CSV para importar'), 'name' => 'jrc_faq_file'),
+                array('type' => 'select', 'label' => $this->l('Modo'), 'name' => 'jrc_faq_mode', 'options' => array('query' => array(
+                    array('id' => 'add', 'name' => $this->l('Añadir: las preguntas que ya existen se saltan')),
+                    array('id' => 'replace', 'name' => $this->l('Sustituir: borra todas las respuestas validadas y carga las del archivo')),
+                ), 'id' => 'id', 'name' => 'name')),
+            ),
+            'submit' => array('title' => $this->l('Importar'), 'name' => 'submitJosrachatImportFaq', 'icon' => 'process-icon-upload'),
+        ));
+        $helper = $this->formHelper('knowledge', 'submitJosrachatImportFaq');
+        $helper->tpl_vars['fields_value'] = array('jrc_faq_mode' => 'add');
+        $out .= $helper->generateForm(array($importForm));
+
         // Documentos
         $docForm = array('form' => array(
             'legend' => array('title' => $this->l('Añadir documento'), 'icon' => 'icon-file-text'),
@@ -928,6 +952,181 @@ class Josrachat extends Module
         ));
 
         $out .= '<div class="alert alert-info">' . $this->l('Además de esto, el asistente ya consulta solo los productos, categorías, precios, ofertas, stock, combinaciones, características, transportistas, páginas de información (CMS) y pedidos de la tienda. No hace falta copiarlos aquí.') . '</div>';
+
+        return $out;
+    }
+
+    /** Descarga las respuestas validadas de la tienda en CSV (UTF-8 con BOM, punto y coma). */
+    protected function exportFaq()
+    {
+        $rows = Db::getInstance()->executeS(
+            'SELECT `question`, `answer`, `active` FROM `' . _DB_PREFIX_ . 'josrachat_knowledge`
+             WHERE `id_shop` = ' . (int) $this->context->shop->id . ' ORDER BY `id_knowledge` ASC'
+        );
+        $fh = fopen('php://temp', 'w+');
+        fwrite($fh, "\xEF\xBB\xBF");
+        fputcsv($fh, array('pregunta', 'respuesta', 'activa'), ';');
+        foreach ($rows ? $rows : array() as $r) {
+            fputcsv($fh, array($r['question'], $r['answer'], (int) $r['active']), ';');
+        }
+        rewind($fh);
+        $csv = stream_get_contents($fh);
+        fclose($fh);
+
+        $shop = Tools::str2url((string) Configuration::get('PS_SHOP_NAME'));
+        $filename = 'respuestas-validadas' . ($shop !== '' ? '-' . $shop : '') . '-' . date('Y-m-d') . '.csv';
+        while (ob_get_level() > 0) {
+            ob_end_clean();
+        }
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Content-Length: ' . strlen($csv));
+        header('Cache-Control: no-store');
+        echo $csv;
+        exit;
+    }
+
+    /** Importa un CSV de respuestas validadas. Devuelve el mensaje con el resultado. */
+    protected function importFaq()
+    {
+        $file = isset($_FILES['jrc_faq_file']) ? $_FILES['jrc_faq_file'] : null;
+        if (!$file || !isset($file['error']) || $file['error'] === UPLOAD_ERR_NO_FILE) {
+            return $this->displayError($this->l('Elige el archivo CSV que quieres importar.'));
+        }
+        if ($file['error'] !== UPLOAD_ERR_OK) {
+            return $this->displayError(sprintf($this->l('El archivo no ha llegado bien (código %d). Puede que supere el tamaño máximo de subida del servidor (%s).'), (int) $file['error'], ini_get('upload_max_filesize')));
+        }
+        $raw = (string) Tools::file_get_contents($file['tmp_name']);
+        if (strncmp($raw, "\xEF\xBB\xBF", 3) === 0) {
+            $raw = substr($raw, 3);
+        }
+        if (trim($raw) === '') {
+            return $this->displayError($this->l('El archivo está vacío.'));
+        }
+        if (!mb_check_encoding($raw, 'UTF-8')) {
+            // Guardado desde Excel en Windows: viene en Windows-1252.
+            $raw = mb_convert_encoding($raw, 'UTF-8', 'Windows-1252');
+        }
+
+        // Separador: el que más aparece en la primera línea.
+        $firstLine = strtok($raw, "\n");
+        $delimiter = ';';
+        $best = -1;
+        foreach (array(';', ',', "\t") as $d) {
+            $n = substr_count($firstLine, $d);
+            if ($n > $best) {
+                $best = $n;
+                $delimiter = $d;
+            }
+        }
+
+        $fh = fopen('php://temp', 'w+');
+        fwrite($fh, $raw);
+        rewind($fh);
+        $colQ = 0;
+        $colA = 1;
+        $colActive = 2;
+        $line = 0;
+        $records = array();
+        $errors = array();
+        while (($row = fgetcsv($fh, 0, $delimiter)) !== false) {
+            ++$line;
+            if ($row === array(null) || (count($row) === 1 && trim((string) $row[0]) === '')) {
+                continue;
+            }
+            if ($line === 1) {
+                $head = array_map(function ($h) {
+                    return Tools::strtolower(trim((string) $h));
+                }, $row);
+                $isHeader = false;
+                foreach ($head as $i => $h) {
+                    if (in_array($h, array('pregunta', 'question'), true)) {
+                        $colQ = $i;
+                        $isHeader = true;
+                    } elseif (in_array($h, array('respuesta', 'answer'), true)) {
+                        $colA = $i;
+                        $isHeader = true;
+                    } elseif (in_array($h, array('activa', 'activo', 'active'), true)) {
+                        $colActive = $i;
+                        $isHeader = true;
+                    }
+                }
+                if ($isHeader) {
+                    continue;
+                }
+            }
+            $q = isset($row[$colQ]) ? trim((string) $row[$colQ]) : '';
+            $a = isset($row[$colA]) ? trim((string) $row[$colA]) : '';
+            if ($q === '' || $a === '') {
+                $errors[] = sprintf($this->l('Fila %d: falta la pregunta o la respuesta.'), $line);
+                continue;
+            }
+            $activeVal = isset($row[$colActive]) ? Tools::strtolower(trim((string) $row[$colActive])) : '1';
+            $records[] = array(
+                'question' => $q,
+                'answer' => $a,
+                'active' => in_array($activeVal, array('0', 'no', 'false', 'n'), true) ? 0 : 1,
+            );
+        }
+        fclose($fh);
+
+        if (!$records) {
+            $msg = $this->l('No se ha importado nada: el archivo no tiene filas válidas. Comprueba que tiene las columnas pregunta y respuesta.');
+            if ($errors) {
+                $msg .= '<br>' . implode('<br>', array_map('Tools::safeOutput', array_slice($errors, 0, 10)));
+            }
+
+            return $this->displayError($msg);
+        }
+
+        $db = Db::getInstance();
+        $idShop = (int) $this->context->shop->id;
+        $mode = Tools::getValue('jrc_faq_mode') === 'replace' ? 'replace' : 'add';
+        $normalize = function ($text) {
+            return trim(preg_replace('/\s+/u', ' ', Tools::strtolower((string) $text)));
+        };
+        $existing = array();
+        if ($mode === 'replace') {
+            $db->delete('josrachat_knowledge', '`id_shop` = ' . $idShop);
+        } else {
+            foreach ($db->executeS('SELECT `question` FROM `' . _DB_PREFIX_ . 'josrachat_knowledge` WHERE `id_shop` = ' . $idShop) as $r) {
+                $existing[$normalize($r['question'])] = true;
+            }
+        }
+
+        $added = 0;
+        $skipped = 0;
+        $now = date('Y-m-d H:i:s');
+        foreach ($records as $r) {
+            $key = $normalize($r['question']);
+            if (isset($existing[$key])) {
+                ++$skipped;
+                continue;
+            }
+            $existing[$key] = true;
+            $ok = $db->insert('josrachat_knowledge', array(
+                'id_shop' => $idShop,
+                'question' => pSQL($r['question'], true),
+                'answer' => pSQL($r['answer'], true),
+                'id_message' => 0,
+                'active' => (int) $r['active'],
+                'date_add' => $now,
+                'date_upd' => $now,
+            ));
+            if ($ok) {
+                ++$added;
+            } else {
+                $errors[] = sprintf($this->l('No se pudo guardar "%s": %s'), Tools::substr($r['question'], 0, 60), $db->getMsgError());
+            }
+        }
+
+        $msg = ($mode === 'replace'
+            ? sprintf($this->l('Importación terminada (modo sustituir): %d respuestas cargadas.'), $added)
+            : sprintf($this->l('Importación terminada: %d añadidas, %d saltadas porque la pregunta ya existía.'), $added, $skipped));
+        $out = $this->displayConfirmation($msg);
+        if ($errors) {
+            $out .= $this->displayWarning(sprintf($this->l('%d filas con problemas:'), count($errors)) . '<br>' . implode('<br>', array_map('Tools::safeOutput', array_slice($errors, 0, 15))) . (count($errors) > 15 ? '<br>…' : ''));
+        }
 
         return $out;
     }
