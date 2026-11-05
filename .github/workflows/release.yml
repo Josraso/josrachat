@@ -1,0 +1,45 @@
+# Crea la etiqueta y la Release (con el zip instalable) de cada versión de josrachat.
+# Se lanza al subir a main y también a mano desde la pestaña Actions.
+# Busca los commits cuyo título empieza por "josrachat X.Y.Z" y crea lo que falte,
+# así que la primera vez rellena también las versiones anteriores.
+name: Releases
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Crear etiquetas y Releases que falten
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          latest=$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' config.xml | head -1)
+          git log --reverse --format='%H' main | while read sha; do
+            subject=$(git log -1 --format=%s "$sha")
+            v=$(echo "$subject" | sed -nE 's/^josrachat ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p')
+            [ -z "$v" ] && continue
+            if gh release view "v$v" >/dev/null 2>&1; then
+              echo "v$v ya existe"
+              continue
+            fi
+            git archive --format=zip --prefix=josrachat/ -o "josrachat_$v.zip" "$sha"
+            title=$(echo "$subject" | sed -E 's/^josrachat //')
+            git log -1 --format=%b "$sha" | grep -v '^Co-Authored-By\|^Claude-Session' > notes.md
+            printf '\nInstalación: descarga **josrachat_%s.zip** y súbelo en Módulos > Subir un módulo. Compatible con PrestaShop 1.6.1 a 9.\n' "$v" >> notes.md
+            flag="--latest=false"
+            [ "$v" = "$latest" ] && flag="--latest"
+            gh release create "v$v" "josrachat_$v.zip" --target "$sha" --title "$title" --notes-file notes.md $flag
+            echo "Creada v$v"
+          done
