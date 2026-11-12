@@ -2,7 +2,7 @@
 <module>
     <name>josrachat</name>
     <displayName><![CDATA[Asistente IA de la tienda]]></displayName>
-    <version><![CDATA[2.0.8]]></version>
+    <version><![CDATA[2.0.9]]></version>
     <description><![CDATA[Asistente que responde a los clientes con inteligencia artificial (Claude) usando el catálogo, envíos, páginas, documentos y pedidos de la tienda. Con control de gasto y registro de conversaciones.]]></description>
     <author><![CDATA[josra]]></author>
     <tab><![CDATA[front_office_features]]></tab>
