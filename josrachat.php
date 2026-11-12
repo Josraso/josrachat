@@ -15,6 +15,7 @@ require_once __DIR__ . '/classes/JosrachatClaude.php';
 require_once __DIR__ . '/classes/JosrachatTools.php';
 require_once __DIR__ . '/classes/JosrachatBot.php';
 require_once __DIR__ . '/classes/JosrachatSchedule.php';
+require_once dirname(__FILE__) . '/classes/JosrachatUpdater.php';
 
 class Josrachat extends Module
 {
@@ -29,7 +30,7 @@ class Josrachat extends Module
     {
         $this->name = 'josrachat';
         $this->tab = 'front_office_features';
-        $this->version = '2.0.7';
+        $this->version = '2.0.8';
         $this->author = 'josra';
         $this->need_instance = 0;
         $this->bootstrap = true;
@@ -44,6 +45,24 @@ class Josrachat extends Module
 
     // ================================================================ instalación
 
+    public function getUpdater()
+    {
+        return new JosrachatUpdater($this);
+    }
+
+    /** Aviso periódico al servidor de actualizaciones (solo en el back-office) */
+    public function hookActionAdminControllerSetMedia($params)
+    {
+        $this->getUpdater()->maybePing();
+    }
+
+    /** PS 8.1+: la versión nueva aparece en Gestor de módulos > Actualizaciones */
+    public function hookActionListModules($params)
+    {
+        return $this->getUpdater()->getNativeModuleList();
+    }
+
+
     public function install()
     {
         if (!parent::install()) {
@@ -55,7 +74,7 @@ class Josrachat extends Module
 
             return false;
         }
-        foreach ($this->moduleHooks as $hook) {
+        foreach (array_merge($this->moduleHooks, $this->getUpdater()->getHooks()) as $hook) {
             if (!$this->registerHook($hook)) {
                 $this->_errors[] = 'No se pudo registrar el hook ' . $hook . '.';
 
@@ -98,6 +117,11 @@ class Josrachat extends Module
 
     public function uninstall()
     {
+        $this->getUpdater()->notifyUninstall();
+        Configuration::deleteByName('JOSRACHAT_UPD_TS');
+        Configuration::deleteByName('JOSRACHAT_UPD_INFO');
+        Configuration::deleteByName('JOSRACHAT_UPD_SU');
+        Configuration::deleteByName('JOSRACHAT_UPD_LT');
         JosrachatDb::drop();
         Db::getInstance()->execute('DELETE FROM `' . _DB_PREFIX_ . 'configuration_lang` WHERE `id_configuration` IN (SELECT `id_configuration` FROM `' . _DB_PREFIX_ . 'configuration` WHERE `name` LIKE "JOSRACHAT\_%")');
         Db::getInstance()->execute('DELETE FROM `' . _DB_PREFIX_ . 'configuration` WHERE `name` LIKE "JOSRACHAT\_%"');
@@ -382,7 +406,8 @@ class Josrachat extends Module
 
     public function getContent()
     {
-        $out = '';
+        $updater = $this->getUpdater();
+        $out = $updater->processRequest();
         $repair = $this->selfRepair();
         if ($repair !== '') {
             $out .= $this->displayError($repair);
@@ -397,25 +422,31 @@ class Josrachat extends Module
         // Una acción puede llevarnos a otra pestaña (por ejemplo, corregir una respuesta).
         $tab = Tools::getValue('josrachat_tab', $tab);
 
-        $out .= $this->renderNav($tab);
+        $forms = $this->renderNav($tab);
         switch ($tab) {
             case 'knowledge':
-                $out .= $this->renderKnowledgeTab();
+                $forms .= $this->renderKnowledgeTab();
                 break;
             case 'conversations':
-                $out .= $this->renderConversationsTab();
+                $forms .= $this->renderConversationsTab();
                 break;
             case 'schedule':
-                $out .= $this->renderScheduleTab();
+                $forms .= $this->renderScheduleTab();
                 break;
             case 'usage':
-                $out .= $this->renderUsageTab();
+                $forms .= $this->renderUsageTab();
                 break;
             default:
-                $out .= $this->renderConfigTab();
+                $forms .= $this->renderConfigTab();
         }
 
-        return $out;
+        // Panel de actualizaciones: arriba si hay versión nueva, abajo si no
+        $info = $updater->getInfo();
+        $panel = $updater->renderPanel();
+
+        return !empty($info['update_available'])
+            ? $out . $panel . $forms
+            : $out . $forms . $panel;
     }
 
     protected function renderNav($active)
