@@ -172,12 +172,24 @@
         fMsg.placeholder = T.message;
         fMsg.rows = 4;
         fMsg.maxLength = 3000;
+        // campo trampa: invisible para las personas; los robots que rellenan todo lo rellenan
+        var fTrap = el('input');
+        fTrap.type = 'text';
+        fTrap.name = 'website';
+        fTrap.tabIndex = -1;
+        fTrap.autocomplete = 'off';
+        fTrap.setAttribute('aria-hidden', 'true');
+        fTrap.style.cssText = 'position:absolute;left:-9999px;top:auto;width:1px;height:1px;opacity:0;';
+        // cuántas veces se escribe o se pega en el mensaje (una persona siempre lo hace)
+        var typed = 0;
+        fMsg.addEventListener('input', function () { typed++; });
         var fSend = el('button', 'jrc-send-form', T.send);
         fSend.type = 'submit';
         var fErr = el('div', 'jrc-form-error');
         form.appendChild(fName);
         form.appendChild(fEmail);
         form.appendChild(fMsg);
+        form.appendChild(fTrap);
         form.appendChild(fErr);
         form.appendChild(fSend);
         contact.appendChild(form);
@@ -431,13 +443,14 @@
             }
             fSend.disabled = true;
             load(function () {
-                post({ action: 'contact', token: state.token, name: fName.value, email: fEmail.value, message: fMsg.value }, function (r) {
+                post({ action: 'contact', token: state.token, name: fName.value, email: fEmail.value, message: fMsg.value, website: fTrap.value, typed: typed }, function (r) {
                     fSend.disabled = false;
                     if (!r || !r.ok) {
                         fErr.textContent = (r && r.error) ? r.error : T.error;
                         return;
                     }
                     fMsg.value = '';
+                    typed = 0;
                     showContact(false);
                     addMsg('bot', r.reply);
                 });

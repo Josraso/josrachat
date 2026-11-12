@@ -43,6 +43,13 @@
         <div>{$m.content|escape:'html':'UTF-8'|nl2br}</div>
         {if $m.error}<p class="text-danger" style="margin:4px 0 0;">{$m.error|escape:'html':'UTF-8'}</p>{/if}
       </div>
+    {elseif $m.role == 'spam'}
+      <div class="alert alert-danger">
+        <p style="margin:0 0 4px;"><i class="icon-ban"></i> <strong>{l s='Formulario de contacto tomado por spam: no se mandó el correo' mod='josrachat'}</strong> &middot; {$m.date|escape:'html':'UTF-8'} &middot; IP {$m.ip|escape:'html':'UTF-8'}</p>
+        <div>{$m.content|escape:'html':'UTF-8'|nl2br}</div>
+        {if $m.error}<p style="margin:4px 0 0;"><em>{$m.error|escape:'html':'UTF-8'}</em></p>{/if}
+        <p class="help-block" style="margin:4px 0 0;">{l s='Si era un cliente de verdad, contéstale directamente a su correo.' mod='josrachat'}</p>
+      </div>
     {else}
       <div class="panel" style="margin-left:20%;margin-bottom:10px;">
         <p class="text-muted" style="margin:0 0 4px;">

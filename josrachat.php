@@ -15,6 +15,7 @@ require_once __DIR__ . '/classes/JosrachatClaude.php';
 require_once __DIR__ . '/classes/JosrachatTools.php';
 require_once __DIR__ . '/classes/JosrachatBot.php';
 require_once __DIR__ . '/classes/JosrachatSchedule.php';
+require_once __DIR__ . '/classes/JosrachatSpam.php';
 require_once dirname(__FILE__) . '/classes/JosrachatUpdater.php';
 
 class Josrachat extends Module
@@ -30,7 +31,7 @@ class Josrachat extends Module
     {
         $this->name = 'josrachat';
         $this->tab = 'front_office_features';
-        $this->version = '2.0.10';
+        $this->version = '2.0.11';
         $this->author = 'josra';
         $this->need_instance = 0;
         $this->bootstrap = true;
@@ -1277,11 +1278,13 @@ class Josrachat extends Module
         $filter = Tools::getValue('jrc_filter', 'attention');
         $filters = array(
             'attention' => array('label' => $this->l('Para revisar'), 'where' => '(c.`need_human` = 1 OR c.`no_answer` = 1) AND c.`reviewed` = 0'),
-            'all' => array('label' => $this->l('Todas'), 'where' => '1'),
+            'all' => array('label' => $this->l('Todas'), 'where' => 'NOT EXISTS (SELECT 1 FROM `' . _DB_PREFIX_ . 'josrachat_message` sm WHERE sm.`id_conversation` = c.`id_conversation` AND sm.`role` = "spam")'),
             'no_answer' => array('label' => $this->l('Sin respuesta'), 'where' => 'c.`no_answer` = 1'),
             'human' => array('label' => $this->l('Pidieron persona'), 'where' => 'c.`need_human` = 1'),
             'order' => array('label' => $this->l('Con pedido'), 'where' => 'c.`id_order` > 0'),
             'blocked' => array('label' => $this->l('Bloqueadas'), 'where' => 'c.`blocked` = 1'),
+            // formularios de contacto que el filtro tomó por robots (no se mandó el correo)
+            'spam' => array('label' => $this->l('Spam'), 'where' => 'EXISTS (SELECT 1 FROM `' . _DB_PREFIX_ . 'josrachat_message` sm WHERE sm.`id_conversation` = c.`id_conversation` AND sm.`role` = "spam")'),
         );
         if (!isset($filters[$filter])) {
             $filter = 'attention';
@@ -1293,7 +1296,8 @@ class Josrachat extends Module
 
         $rows = $db->executeS(
             'SELECT c.*, cu.`firstname`, cu.`lastname`, cu.`email` AS customer_email,
-                (SELECT m.`content` FROM `' . _DB_PREFIX_ . 'josrachat_message` m WHERE m.`id_conversation` = c.`id_conversation` AND m.`role` = "user" ORDER BY m.`id_message` ASC LIMIT 1) AS first_question
+                (SELECT m.`content` FROM `' . _DB_PREFIX_ . 'josrachat_message` m WHERE m.`id_conversation` = c.`id_conversation` AND m.`role` IN ("user", "contact", "spam") ORDER BY m.`id_message` ASC LIMIT 1) AS first_question,
+                EXISTS (SELECT 1 FROM `' . _DB_PREFIX_ . 'josrachat_message` sm2 WHERE sm2.`id_conversation` = c.`id_conversation` AND sm2.`role` = "spam") AS is_spam
              FROM `' . _DB_PREFIX_ . 'josrachat_conversation` c
              LEFT JOIN `' . _DB_PREFIX_ . 'customer` cu ON cu.`id_customer` = c.`id_customer`
              WHERE ' . $where . '
@@ -1372,6 +1376,9 @@ class Josrachat extends Module
         }
         if (!empty($r['blocked'])) {
             $badges[] = '<span class="label label-default">' . $this->l('Bloqueada') . '</span>';
+        }
+        if (!empty($r['is_spam'])) {
+            $badges[] = '<span class="label label-danger">' . $this->l('Spam') . '</span>';
         }
 
         return implode(' ', $badges);

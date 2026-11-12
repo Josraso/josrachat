@@ -13,6 +13,7 @@ require_once _PS_MODULE_DIR_ . 'josrachat/classes/JosrachatClaude.php';
 require_once _PS_MODULE_DIR_ . 'josrachat/classes/JosrachatTools.php';
 require_once _PS_MODULE_DIR_ . 'josrachat/classes/JosrachatBot.php';
 require_once _PS_MODULE_DIR_ . 'josrachat/classes/JosrachatSchedule.php';
+require_once _PS_MODULE_DIR_ . 'josrachat/classes/JosrachatSpam.php';
 
 class JosrachatAjaxModuleFrontController extends ModuleFrontController
 {
@@ -45,6 +46,10 @@ class JosrachatAjaxModuleFrontController extends ModuleFrontController
             }
             if (empty($cookie->josrachat_tok)) {
                 $cookie->josrachat_tok = Josrachat::randomToken();
+            }
+            // cuándo se abrió el asistente: el formulario de contacto no puede llegar a los pocos segundos
+            if (empty($cookie->josrachat_t)) {
+                $cookie->josrachat_t = time();
             }
             $bot = new JosrachatBot($this->context, $this->module);
             $conv = $bot->getConversation($cookie->josrachat_sid);
@@ -131,6 +136,12 @@ class JosrachatAjaxModuleFrontController extends ModuleFrontController
         if ($name === '' || !Validate::isName($name) || !Validate::isEmail($email) || $message === '' || !Validate::isMessage($message)) {
             $this->out(array('ok' => false, 'error' => $es ? 'Revisa el nombre, el email y el mensaje.' : 'Please check your name, email and message.'));
         }
+        $already = $es ? 'Ya hemos recibido tus mensajes, te responderemos lo antes posible.' : 'We already have your messages and will reply soon.';
+        $received = $es ? '¡Recibido! Te responderemos a ' . $email . ' lo antes posible.' : 'Received! We will reply to ' . $email . ' as soon as possible.';
+        // Como mucho 3 formularios por IP al día (los robots abren una conversación nueva cada vez).
+        if (JosrachatSpam::ipOverLimit(Tools::getRemoteAddr())) {
+            $this->out(array('ok' => false, 'error' => $already));
+        }
         // Como mucho 3 formularios por conversación.
         $bot = new JosrachatBot($this->context, $this->module);
         $sid = (string) $this->context->cookie->josrachat_sid;
@@ -142,7 +153,34 @@ class JosrachatAjaxModuleFrontController extends ModuleFrontController
             'SELECT COUNT(*) FROM `' . _DB_PREFIX_ . 'josrachat_message` WHERE `id_conversation` = ' . (int) $conv['id_conversation'] . ' AND `role` = "contact"'
         );
         if ($sent >= 3 || (int) $conv['blocked']) {
-            $this->out(array('ok' => false, 'error' => $es ? 'Ya hemos recibido tus mensajes, te responderemos lo antes posible.' : 'We already have your messages and will reply soon.'));
+            $this->out(array('ok' => false, 'error' => $already));
+        }
+
+        // ¿Robot? No se manda el correo; se guarda en la conversación (filtro «Spam») y se le contesta como si nada.
+        $opened = (int) $this->context->cookie->josrachat_t;
+        $spam = JosrachatSpam::reason(
+            $name,
+            $email,
+            $message,
+            $opened > 0 ? time() - $opened : null,
+            (string) Tools::getValue('website'),
+            (int) Tools::getValue('typed', -1)
+        );
+        if ($spam !== '') {
+            Db::getInstance()->insert('josrachat_message', array(
+                'id_conversation' => (int) $conv['id_conversation'],
+                'role' => 'spam',
+                'content' => pSQL(Tools::substr($name . ' <' . $email . ">\n" . $message, 0, 3500)),
+                'ip' => pSQL(Tools::getRemoteAddr()),
+                'error' => pSQL(Tools::substr('Spam: ' . $spam, 0, 255)),
+                'date_add' => date('Y-m-d H:i:s'),
+            ));
+            Db::getInstance()->execute(
+                'UPDATE `' . _DB_PREFIX_ . 'josrachat_conversation` SET `messages` = `messages` + 1, `reviewed` = 1,
+                    `contact_email` = "' . pSQL($email) . '", `date_upd` = "' . pSQL(date('Y-m-d H:i:s')) . '"
+                 WHERE `id_conversation` = ' . (int) $conv['id_conversation']
+            );
+            $this->out(array('ok' => true, 'reply' => $received));
         }
 
         $to = (string) Configuration::get('JOSRACHAT_CONTACT_EMAIL');
@@ -194,16 +232,17 @@ class JosrachatAjaxModuleFrontController extends ModuleFrontController
             'error' => $ok ? '' : 'No se pudo enviar el correo (revisa la configuración de correo de la tienda)',
             'date_add' => date('Y-m-d H:i:s'),
         ));
-        Db::getInstance()->update('josrachat_conversation', array(
-            'contact_email' => pSQL($email),
-            'need_human' => 1,
-            'date_upd' => date('Y-m-d H:i:s'),
-        ), '`id_conversation` = ' . (int) $conv['id_conversation']);
+        // el formulario cuenta como mensaje: así la conversación sale en el listado aunque no se haya usado el chat
+        Db::getInstance()->execute(
+            'UPDATE `' . _DB_PREFIX_ . 'josrachat_conversation` SET `messages` = `messages` + 1, `need_human` = 1, `reviewed` = 0,
+                `contact_email` = "' . pSQL($email) . '", `date_upd` = "' . pSQL(date('Y-m-d H:i:s')) . '"
+             WHERE `id_conversation` = ' . (int) $conv['id_conversation']
+        );
 
         if (!$ok) {
             $this->out(array('ok' => false, 'error' => $es ? 'No se ha podido enviar ahora mismo. Inténtalo por WhatsApp o teléfono.' : 'It could not be sent right now. Please try WhatsApp or phone.'));
         }
-        $this->out(array('ok' => true, 'reply' => $es ? '¡Recibido! Te responderemos a ' . $email . ' lo antes posible.' : 'Received! We will reply to ' . $email . ' as soon as possible.'));
+        $this->out(array('ok' => true, 'reply' => $received));
     }
 
     protected function out(array $data)
